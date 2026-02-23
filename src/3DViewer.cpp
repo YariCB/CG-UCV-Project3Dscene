@@ -1,3 +1,4 @@
+#include "Interface.h"
 #include "3DViewer.h"
 #include <iostream>
 
@@ -155,6 +156,8 @@ void C3DViewer::render()
     drawInterface();
 }
 
+static UIState globalUIState;
+
 void C3DViewer::drawInterface()
 {
     double currentTime = glfwGetTime();
@@ -164,15 +167,18 @@ void C3DViewer::drawInterface()
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
+    // Llamada al nuevo diseño de interfaz
+    DrawMainPanel(globalUIState);
+
     // Aquí colocas el código ImGui para el slider
-    ImGui::SetNextWindowSize(ImVec2(300, 100), ImGuiCond_Once); // Tamaño inicial 400x300, solo al crear ventana
-    ImGui::Begin("Control Panel");
+    ImGui::SetNextWindowSize(ImVec2(400, 1000), ImGuiCond_Once);
+    //ImGui::Begin("Control Panel");
     static int anyDummyValue = 50;
-    if (ImGui::SliderInt("slider-demo", &anyDummyValue, 1, 100)) 
-    {
+    //if (ImGui::SliderInt("slider-demo", &anyDummyValue, 1, 100)) 
+    //{
         // valor actualizado automáticamente en anyDummyValue
-    }
-    ImGui::End();
+    //}
+    //ImGui::End();
     ImGui::Render();
     // Rendirizar ImGui con OpenGL
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());

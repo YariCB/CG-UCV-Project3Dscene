@@ -7,6 +7,7 @@
 #include "imgui/backends/imgui_impl_glfw.h"
 #include "imgui/backends/imgui_impl_opengl3.h"
 
+struct UIState;
 
 class C3DViewer 
 {
@@ -49,8 +50,8 @@ private:
 
 
 protected:
-    int width = 720;
-    int height = 480;
+    int width = 1280;
+    int height = 720;
     GLFWwindow* m_window = nullptr;
     GLuint m_vao = 0;
     GLuint m_vbo = 0;

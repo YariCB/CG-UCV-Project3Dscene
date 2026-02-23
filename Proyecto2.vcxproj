@@ -145,6 +145,7 @@
     <ClCompile Include="include\imgui\imgui_tables.cpp" />
     <ClCompile Include="include\imgui\imgui_widgets.cpp" />
     <ClCompile Include="src\glad.c" />
+    <ClCompile Include="src\Interface.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\3DViewer.cpp" />
   </ItemGroup>
@@ -153,6 +154,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\3DViewer.h" />
+    <ClInclude Include="src\Interface.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
