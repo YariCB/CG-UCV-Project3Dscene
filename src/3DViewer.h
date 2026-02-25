@@ -7,6 +7,8 @@
 #include "imgui/backends/imgui_impl_glfw.h"
 #include "imgui/backends/imgui_impl_opengl3.h"
 
+#include <glm/glm.hpp>
+
 struct UIState;
 
 class C3DViewer 
@@ -48,6 +50,7 @@ private:
 
     static void cursorPosCallbackStatic(GLFWwindow* window, double xpos, double ypos);
 
+    bool setupSimpleShader(); 
 
 protected:
     int width = 1280;
@@ -56,26 +59,128 @@ protected:
     GLuint m_vao = 0;
     GLuint m_vbo = 0;
     GLuint m_shaderProgram = 0;
+    GLuint m_tableVAO = 0, m_tableVBO = 0;
+    GLuint m_skyboxVAO = 0, m_skyboxVBO = 0;
+    GLuint m_sphereVAO = 0, m_sphereVBO = 0, m_sphereEBO = 0;
     double lastTime = 0.0;
     bool mouseButtonsDown[3] = { false, false, false };
+    int m_sphereIndexCount = 0;
     const char* vertexShaderSrc = R"glsl(
         #version 330 core
         layout(location = 0) in vec3 aPos;
-        layout(location = 1) in vec3 aColor;
-        out vec3 vColor;
-        void main() 
-        {
-            gl_Position = vec4(aPos, 1.0);
-            vColor = aColor;
+        layout(location = 1) in vec3 aNormal;
+        layout(location = 2) in vec3 aColor;
+
+        out vec3 FragPos;
+        out vec3 Normal;
+        out vec3 Color;
+
+        uniform mat4 model;
+        uniform mat4 view;
+        uniform mat4 projection;
+
+        void main() {
+            FragPos = vec3(model * vec4(aPos, 1.0));
+            Normal = mat3(transpose(inverse(model))) * aNormal; // normal en mundo
+            Color = aColor;
+            gl_Position = projection * view * vec4(FragPos, 1.0);
         }
     )glsl";
 
     const char* fragmentShaderSrc = R"glsl(
         #version 330 core
-        in vec3 vColor;
+        in vec3 FragPos;
+        in vec3 Normal;
+        in vec3 Color;
+
         out vec4 FragColor;
+
+        uniform vec3 viewPos;
+        uniform bool attenuationEnabled; // fatt global
+
+        // Luces
+        uniform vec3 lightPos[3];
+        uniform vec3 lightAmbient[3];
+        uniform vec3 lightDiffuse[3];
+        uniform vec3 lightSpecular[3];
+        uniform bool lightEnabled[3];
+        uniform int lightModel[3]; // 0: Phong, 1: Blinn-Phong, 2: Flat
+
         void main() {
-            FragColor = vec4(vColor, 1.0);
+            vec3 norm = normalize(Normal);
+            vec3 viewDir = normalize(viewPos - FragPos);
+            vec3 result = vec3(0.0);
+
+            for (int i = 0; i < 3; i++) {
+                if (!lightEnabled[i]) continue;
+
+                vec3 lightDir = normalize(lightPos[i] - FragPos);
+                float distance = length(lightPos[i] - FragPos);
+                float attenuation = 1.0;
+                if (attenuationEnabled) {
+                    // Coeficientes constantes (puedes ajustarlos)
+                    float constant = 1.0;
+                    float linear = 0.09;
+                    float quadratic = 0.032;
+                    attenuation = 1.0 / (constant + linear * distance + quadratic * distance * distance);
+                }
+
+                // Ambiental
+                vec3 ambient = lightAmbient[i] * Color;
+
+                // Difuso
+                float diff = max(dot(norm, lightDir), 0.0);
+                vec3 diffuse = lightDiffuse[i] * diff * Color;
+
+                // Especular (seg�n modelo)
+                vec3 specular = vec3(0.0);
+                if (lightModel[i] != 2) { // No flat
+                    if (lightModel[i] == 0) { // Phong
+                        vec3 reflectDir = reflect(-lightDir, norm);
+                        float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0); // shinyness 32
+                        specular = lightSpecular[i] * spec;
+                    } else { // Blinn-Phong
+                        vec3 halfwayDir = normalize(lightDir + viewDir);
+                        float spec = pow(max(dot(norm, halfwayDir), 0.0), 32.0);
+                        specular = lightSpecular[i] * spec;
+                    }
+                }
+
+                result += (ambient + diffuse + specular) * attenuation;
+            }
+
+            FragColor = vec4(result, 1.0);
         }
     )glsl";
+
+    GLuint m_simpleShader = 0;
+    const char* simpleVertexSrc = R"glsl(
+        #version 330 core
+        layout(location = 0) in vec3 aPos;
+        uniform mat4 model;
+        uniform mat4 view;
+        uniform mat4 projection;
+        void main() {
+            gl_Position = projection * view * model * vec4(aPos, 1.0);
+        }
+    )glsl";
+        const char* simpleFragmentSrc = R"glsl(
+        #version 330 core
+        uniform vec3 color;
+        out vec4 FragColor;
+        void main() {
+            FragColor = vec4(color, 1.0);
+        }
+    )glsl";
+
+    glm::vec3 m_lightPos[3];
+    float m_lightSpeedFactor; // se actualizar� desde UI
+    float m_lightRadii[3] = { 5.0f, 4.0f, 6.0f };
+    float m_lightHeights[3] = { 2.0f, 3.0f, 1.5f };
+    float m_lightAngularSpeed[3] = { 1.0f, 1.2f, 0.8f };
+
+    // Funciones para inicializar geometr�a
+    void setupTable();
+    void setupSphere();
+    void setupSkybox();
 };

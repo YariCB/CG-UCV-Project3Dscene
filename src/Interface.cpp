@@ -18,7 +18,10 @@ void DrawMainPanel(UIState& state) {
             ImGui::PushID(i);
             ImGui::Separator();
             ImGui::Text("%s", names[i]);
-            ImGui::ColorEdit3("Color", state.lightColors[i]);
+            ImGui::Checkbox("Enable", &state.lightEnabled[i]);
+            ImGui::ColorEdit3("Diffuse", state.lightColors[i]);
+            ImGui::ColorEdit3("Ambient", state.lightAmbient[i]);
+            ImGui::ColorEdit3("Specular", state.lightSpecular[i]);
             ImGui::Combo("Model", &state.shadingModels[i], models, 3);
             ImGui::PopID();
         }
