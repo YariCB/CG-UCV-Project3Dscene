@@ -15,6 +15,7 @@ struct UIState;
 struct Vertex {
     glm::vec3 Position;
     glm::vec3 Normal;
+    glm::vec3 Color;
     glm::vec2 TexCoords;
 };
 
@@ -78,18 +79,26 @@ protected:
         layout(location = 0) in vec3 aPos;
         layout(location = 1) in vec3 aNormal;
         layout(location = 2) in vec3 aColor;
+        layout(location = 3) in vec2 aTexCoords;
 
         out vec3 FragPos;
         out vec3 Normal;
         out vec3 Color;
+        out vec2 TexCoords;
 
         uniform mat4 model;
         uniform mat4 view;
         uniform mat4 projection;
+        // material uniforms (populated from C++ side)
+        uniform vec3 materialAmbient;
+        uniform vec3 materialDiffuse;
+        uniform vec3 materialSpecular;
+        uniform float materialShininess;
 
         void main() {
             FragPos = vec3(model * vec4(aPos, 1.0));
             Normal = mat3(transpose(inverse(model))) * aNormal; // normal en mundo
+            TexCoords = aTexCoords;
             Color = aColor;
             gl_Position = projection * view * vec4(FragPos, 1.0);
         }
@@ -100,64 +109,75 @@ protected:
         in vec3 FragPos;
         in vec3 Normal;
         in vec3 Color;
+        in vec2 TexCoords;
 
         out vec4 FragColor;
 
         uniform vec3 viewPos;
-        uniform bool attenuationEnabled; // fatt global
+        uniform bool attenuationEnabled;
+        uniform sampler2D texture_diffuse;
+        uniform bool useTexture;
 
-        // Luces
+        uniform vec3 materialAmbient;
+        uniform vec3 materialDiffuse;
+        uniform vec3 materialSpecular;
+        uniform float materialShininess;
+
         uniform vec3 lightPos[3];
         uniform vec3 lightAmbient[3];
         uniform vec3 lightDiffuse[3];
         uniform vec3 lightSpecular[3];
         uniform bool lightEnabled[3];
-        uniform int lightModel[3]; // 0: Phong, 1: Blinn-Phong, 2: Flat
+        uniform int lightModel[3]; 
 
         void main() {
             vec3 norm = normalize(Normal);
             vec3 viewDir = normalize(viewPos - FragPos);
             vec3 result = vec3(0.0);
 
+            // Priorizamos la textura sobre el color por vértice
+            vec4 texColor = texture(texture_diffuse, TexCoords);
+            vec3 baseColor = useTexture ? texColor.rgb : Color;
+
             for (int i = 0; i < 3; i++) {
                 if (!lightEnabled[i]) continue;
 
                 vec3 lightDir = normalize(lightPos[i] - FragPos);
                 float distance = length(lightPos[i] - FragPos);
+                
+                // Atenuación ajustada para distancias cortas (mesa mini-man)
                 float attenuation = 1.0;
                 if (attenuationEnabled) {
-                    // Coeficientes constantes (puedes ajustarlos)
                     float constant = 1.0;
-                    float linear = 0.09;
-                    float quadratic = 0.032;
+                    float linear = 0.01;
+                    float quadratic = 0.002;
                     attenuation = 1.0 / (constant + linear * distance + quadratic * distance * distance);
                 }
 
-                // Ambiental
-                vec3 ambient = lightAmbient[i] * Color;
+                // Ambiental: usar componente ambiental de la luz y del material
+                vec3 ambient = lightAmbient[i] * materialAmbient * baseColor;
 
-                // Difuso
+                // Difuso multiplicado por la propiedad difusa del material
                 float diff = max(dot(norm, lightDir), 0.0);
-                vec3 diffuse = lightDiffuse[i] * diff * Color;
+                vec3 diffuse = lightDiffuse[i] * diff * (materialDiffuse * baseColor);
 
-                // Especular
+                // Especular (Phong / Blinn-Phong), usando propiedad especular y shininess
                 vec3 specular = vec3(0.0);
-                if (lightModel[i] != 2) { // No flat
+                if (lightModel[i] != 2) {
                     if (lightModel[i] == 0) { // Phong
                         vec3 reflectDir = reflect(-lightDir, norm);
-                        float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0); // shinyness 32
-                        specular = lightSpecular[i] * spec;
+                        float spec = pow(max(dot(viewDir, reflectDir), 0.0), materialShininess);
+                        specular = lightSpecular[i] * spec * materialSpecular;
                     } else { // Blinn-Phong
                         vec3 halfwayDir = normalize(lightDir + viewDir);
-                        float spec = pow(max(dot(norm, halfwayDir), 0.0), 32.0);
-                        specular = lightSpecular[i] * spec;
+                        float spec = pow(max(dot(norm, halfwayDir), 0.0), materialShininess);
+                        specular = lightSpecular[i] * spec * materialSpecular;
                     }
                 }
 
                 result += (ambient + diffuse + specular) * attenuation;
             }
-
-            FragColor = vec4(result, 1.0);
+            FragColor = vec4(clamp(result, 0.0, 1.0), 1.0);
         }
     )glsl";
 
@@ -182,9 +202,9 @@ protected:
     )glsl";
 
     glm::vec3 m_lightPos[3];
-    float m_lightSpeedFactor; // actualiza desde UI
-    float m_lightRadii[3] = { 5.0f, 4.0f, 6.0f };
-    float m_lightHeights[3] = { 2.0f, 3.0f, 1.5f };
+    float m_lightSpeedFactor;
+    float m_lightRadii[3] = { 18.0f, 15.0f, 20.0f }; 
+    float m_lightHeights[3] = { 5.5f, 6.0f, 5.0f };
     float m_lightAngularSpeed[3] = { 1.0f, 1.2f, 0.8f };
 
     // Funciones para inicializar geometria

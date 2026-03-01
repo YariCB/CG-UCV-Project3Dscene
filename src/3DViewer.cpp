@@ -208,10 +208,11 @@ void C3DViewer::render() {
     // Atenuación
     glUniform1i(glGetUniformLocation(m_shaderProgram, "attenuationEnabled"), globalUIState.attenuation);
 
-    // Configuración de materiales
-    glUniform3f(glGetUniformLocation(m_shaderProgram, "material.ambient"), 0.1f, 0.1f, 0.1f);
-    glUniform3f(glGetUniformLocation(m_shaderProgram, "material.diffuse"), 0.47f, 0.38f, 0.27f);
-    glUniform3f(glGetUniformLocation(m_shaderProgram, "material.specular"), 0.23f, 0.23f, 0.23f);
+    // Configuración de materiales (coherente con textura de madera)
+    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.12f, 0.05f, 0.02f);
+    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.8f, 0.7f, 0.6f);
+    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.15f, 0.15f, 0.15f);
+    glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 32.0f);
 
     // Luces: posiciones, colores, etc.
     for (int i = 0; i < 3; i++) {
@@ -238,18 +239,20 @@ void C3DViewer::render() {
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
     glm::mat4 tableModel = glm::mat4(1.0f);
-    // 1. ESCALA
+    // Escala
     tableModel = glm::scale(tableModel, glm::vec3(0.5f));  
-    // 2. POSICIÓN
+    // Posición
     tableModel = glm::translate(tableModel, glm::vec3(0.0f, -80.0f, -40.0f));
-    // 3. ROTACIÓN
+    // Rotación
     tableModel = glm::rotate(tableModel, glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
     tableModel = glm::rotate(tableModel, glm::radians(10.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(tableModel));
-    // 4. TEXTURA: Es vital que la textura esté activa
+    // Textura
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_tableTexture);
     glUniform1i(glGetUniformLocation(m_shaderProgram, "texture_diffuse"), 0);
+    glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), 1);
+    // Dibujo
     glBindVertexArray(m_tableVAO);
     glDrawArrays(GL_TRIANGLES, 0, m_tableVertexCount);
 
@@ -278,7 +281,7 @@ void C3DViewer::render() {
         if (!globalUIState.lightEnabled[i]) continue;
         glm::mat4 model = glm::mat4(1.0f);
         model = glm::translate(model, m_lightPos[i]);
-        model = glm::scale(model, glm::vec3(0.3f));
+        model = glm::scale(model, glm::vec3(0.8f));
         glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "model"), 1, GL_FALSE, glm::value_ptr(model));
         glUniform3fv(glGetUniformLocation(m_simpleShader, "color"), 1, globalUIState.lightColors[i]);
         glDrawElements(GL_TRIANGLES, m_sphereIndexCount, GL_UNSIGNED_INT, 0);
@@ -678,6 +681,8 @@ void C3DViewer::loadOBJ(const std::string& path) {
                     attrib.texcoords[2 * index.texcoord_index + 1]
                 };
             }
+            // Por defecto asignamos color blanco (si el OBJ no trae color por vértice)
+            vertex.Color = glm::vec3(1.0f, 1.0f, 1.0f);
             vertices.push_back(vertex);
         }
     }
@@ -696,9 +701,12 @@ void C3DViewer::loadOBJ(const std::string& path) {
     // Normales
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Normal));
-    // UVs
+    // Color (default blanco para OBJ)
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, TexCoords));
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Color));
+    // UVs
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, TexCoords));
 }
 
 unsigned int C3DViewer::loadTexture(const char* path) {
@@ -712,6 +720,13 @@ unsigned int C3DViewer::loadTexture(const char* path) {
         glBindTexture(GL_TEXTURE_2D, textureID);
         glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
         glGenerateMipmap(GL_TEXTURE_2D);
+
+        // Set texture wrapping and filtering options
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
         stbi_image_free(data);
     }
     else {
