@@ -7,6 +7,11 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/constants.hpp>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "tiny_obj_loader.h"
+
 static UIState globalUIState;
 
 C3DViewer::C3DViewer()
@@ -78,13 +83,21 @@ bool C3DViewer::setup()
     // Setup shader
     if (!setupShader()) return false;
 
+    // Mesa OBJ
+    loadOBJ("OBJs/table/table4.obj");
+    m_tableTexture = loadTexture("OBJs/table/tipical.jpg");
+
     if (!setupSimpleShader()) return false;
 
     // Setup VAO y VBO para el triángulo
-    setupTriangle();
+    //setupTriangle();
 
     // Mesa y Skybox
-    setupTable();
+    // Si no se cargó un OBJ (m_tableVertexCount == 0) usamos el cubo de prueba;
+    // de lo contrario conservamos el VAO creado por loadOBJ().
+    if (m_tableVertexCount == 0) {
+        setupTable();
+    }
     setupSkybox();
     setupSphere();
 
@@ -171,23 +184,34 @@ void C3DViewer::onCursorPos(double xpos, double ypos)
 void C3DViewer::render() {
     update();
 
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     // --- Configuración de cámara ---
-    glm::vec3 camPos(0.0f, 5.0f, 10.0f);
-    glm::mat4 view = glm::lookAt(camPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::vec3 camPos(0.0f, 1.5f, 15.0f);
+    glm::mat4 view = glm::lookAt(camPos, glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)width / (float)height, 0.1f, 500.0f);
 
     // --- Dibujo de objetos iluminados ---
     glUseProgram(m_shaderProgram);
+    glm::mat4 model = glm::mat4(1.0f);
+    /*model = glm::scale(model, glm::vec3(0.1f));*/
     // Matrices
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
     // Posición de la cámara
     glUniform3fv(glGetUniformLocation(m_shaderProgram, "viewPos"), 1, &camPos[0]);
     // Atenuación
     glUniform1i(glGetUniformLocation(m_shaderProgram, "attenuationEnabled"), globalUIState.attenuation);
+
+    // Configuración de materiales
+    glUniform3f(glGetUniformLocation(m_shaderProgram, "material.ambient"), 0.1f, 0.1f, 0.1f);
+    glUniform3f(glGetUniformLocation(m_shaderProgram, "material.diffuse"), 0.47f, 0.38f, 0.27f);
+    glUniform3f(glGetUniformLocation(m_shaderProgram, "material.specular"), 0.23f, 0.23f, 0.23f);
 
     // Luces: posiciones, colores, etc.
     for (int i = 0; i < 3; i++) {
@@ -209,14 +233,25 @@ void C3DViewer::render() {
         glUniform1i(glGetUniformLocation(m_shaderProgram, name), globalUIState.shadingModels[i]);
     }
 
-    // Dibujo mesa
+    // --- Dibujo de la Mesa OBJ ---
+    glUseProgram(m_shaderProgram);
+    glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
     glm::mat4 tableModel = glm::mat4(1.0f);
-	// Traslación de la mesa para que su parte superior quede en y=0
-    tableModel = glm::translate(tableModel, glm::vec3(0.0f, -0.5f, 0.0f));
-    tableModel = glm::scale(tableModel, glm::vec3(13.0f, 0.5f, 15.0f));
+    // 1. ESCALA
+    tableModel = glm::scale(tableModel, glm::vec3(0.5f));  
+    // 2. POSICIÓN
+    tableModel = glm::translate(tableModel, glm::vec3(0.0f, -80.0f, -40.0f));
+    // 3. ROTACIÓN
+    tableModel = glm::rotate(tableModel, glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    tableModel = glm::rotate(tableModel, glm::radians(10.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(tableModel));
+    // 4. TEXTURA: Es vital que la textura esté activa
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_tableTexture);
+    glUniform1i(glGetUniformLocation(m_shaderProgram, "texture_diffuse"), 0);
     glBindVertexArray(m_tableVAO);
-    glDrawArrays(GL_TRIANGLES, 0, 36);
+    glDrawArrays(GL_TRIANGLES, 0, m_tableVertexCount);
 
     // --- Dibujo de skybox ---
     glUseProgram(m_simpleShader);
@@ -600,4 +635,87 @@ bool C3DViewer::setupSimpleShader() {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
     return true;
+}
+
+// Carga de mesa OBJ
+void C3DViewer::loadOBJ(const std::string& path) {
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warn, err;
+
+    std::cout << "Intentando cargar modelo desde: " << path << std::endl;
+
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str(), "OBJs/table/")) {
+        std::cout << "Error cargando OBJ: " << err << std::endl;
+        return;
+    }
+
+    std::cout << "--- Modelo cargado con exito ---" << std::endl;
+    std::cout << "Vertices encontrados: " << attrib.vertices.size() / 3 << std::endl;
+    std::cout << "Caras/Formas encontradas: " << shapes.size() << std::endl;
+    std::cout << "Materiales cargados: " << materials.size() << std::endl;
+
+    std::vector<Vertex> vertices;
+    for (const auto& shape : shapes) {
+        for (const auto& index : shape.mesh.indices) {
+            Vertex vertex{};
+            vertex.Position = {
+                attrib.vertices[3 * index.vertex_index + 0],
+                attrib.vertices[3 * index.vertex_index + 1],
+                attrib.vertices[3 * index.vertex_index + 2]
+            };
+            if (index.normal_index >= 0) {
+                vertex.Normal = {
+                    attrib.normals[3 * index.normal_index + 0],
+                    attrib.normals[3 * index.normal_index + 1],
+                    attrib.normals[3 * index.normal_index + 2]
+                };
+            }
+            if (index.texcoord_index >= 0) {
+                vertex.TexCoords = {
+                    attrib.texcoords[2 * index.texcoord_index + 0],
+                    attrib.texcoords[2 * index.texcoord_index + 1]
+                };
+            }
+            vertices.push_back(vertex);
+        }
+    }
+    m_tableVertexCount = vertices.size();
+    std::cout << "Vertices totales procesados para dibujo: " << m_tableVertexCount << std::endl;
+
+    glGenVertexArrays(1, &m_tableVAO);
+    glGenBuffers(1, &m_tableVBO);
+    glBindVertexArray(m_tableVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_tableVBO);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
+
+    // Posición
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
+    // Normales
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Normal));
+    // UVs
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, TexCoords));
+}
+
+unsigned int C3DViewer::loadTexture(const char* path) {
+    unsigned int textureID;
+    glGenTextures(1, &textureID);
+    int width, height, nrComponents;
+    unsigned char* data = stbi_load(path, &width, &height, &nrComponents, 0);
+    if (data) {
+        std::cout << "Textura cargada correctamente: " << path << " (" << width << "x" << height << ")" << std::endl;
+        GLenum format = (nrComponents == 4) ? GL_RGBA : GL_RGB;
+        glBindTexture(GL_TEXTURE_2D, textureID);
+        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+        glGenerateMipmap(GL_TEXTURE_2D);
+        stbi_image_free(data);
+    }
+    else {
+        std::cerr << "ERROR: No se pudo encontrar la imagen en: " << path << std::endl;
+    }
+    return textureID;
 }

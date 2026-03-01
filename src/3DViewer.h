@@ -3,51 +3,50 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <vector>
+#include <string>
+#include <glm/glm.hpp>
 #include "imgui/imgui.h"
 #include "imgui/backends/imgui_impl_glfw.h"
 #include "imgui/backends/imgui_impl_opengl3.h"
 
-#include <glm/glm.hpp>
-
 struct UIState;
+
+// Estructura completa para cumplir con iluminación y texturas
+struct Vertex {
+    glm::vec3 Position;
+    glm::vec3 Normal;
+    glm::vec2 TexCoords;
+};
 
 class C3DViewer 
 {
 
 public:
     C3DViewer();
-
     bool setup();
-
     void mainLoop();
-
     virtual ~C3DViewer();
 
 private:
+    // Métodos de carga
+    void loadOBJ(const std::string& path);
+    unsigned int loadTexture(const char* path);
+
+    // Callbacks y lógica
     virtual void onKey(int key, int scancode, int action, int mods);
-
     virtual void onMouseButton(int button, int action, int mods);
-
     virtual void onCursorPos(double xpos, double ypos);
-
     virtual void update();
-
     virtual void render();
-
     virtual void drawInterface();
-
     void resize(int new_width, int new_height);
-
     bool setupShader();
-
     bool checkCompileErrors(GLuint shader, const char* type);
 
     void setupTriangle();
 
     static void keyCallbackStatic(GLFWwindow* window, int key, int scancode, int action, int mods);
-
     static void mouseButtonCallbackStatic(GLFWwindow* window, int button, int action, int mods);
-
     static void cursorPosCallbackStatic(GLFWwindow* window, double xpos, double ypos);
 
     bool setupSimpleShader(); 
@@ -56,15 +55,24 @@ protected:
     int width = 1280;
     int height = 720;
     GLFWwindow* m_window = nullptr;
+
+    // Buffers para la mesa OBJ
+    GLuint m_tableVAO = 0;
+    GLuint m_tableVBO = 0;
+    size_t m_tableVertexCount = 0;
+    GLuint m_tableTexture = 0;
+
+    GLuint m_shaderProgram = 0;
+    double lastTime = 0.0;
+
     GLuint m_vao = 0;
     GLuint m_vbo = 0;
-    GLuint m_shaderProgram = 0;
-    GLuint m_tableVAO = 0, m_tableVBO = 0;
     GLuint m_skyboxVAO = 0, m_skyboxVBO = 0;
     GLuint m_sphereVAO = 0, m_sphereVBO = 0, m_sphereEBO = 0;
-    double lastTime = 0.0;
+    
     bool mouseButtonsDown[3] = { false, false, false };
     int m_sphereIndexCount = 0;
+
     const char* vertexShaderSrc = R"glsl(
         #version 330 core
         layout(location = 0) in vec3 aPos;
@@ -132,7 +140,7 @@ protected:
                 float diff = max(dot(norm, lightDir), 0.0);
                 vec3 diffuse = lightDiffuse[i] * diff * Color;
 
-                // Especular (seg�n modelo)
+                // Especular
                 vec3 specular = vec3(0.0);
                 if (lightModel[i] != 2) { // No flat
                     if (lightModel[i] == 0) { // Phong
@@ -174,12 +182,12 @@ protected:
     )glsl";
 
     glm::vec3 m_lightPos[3];
-    float m_lightSpeedFactor; // se actualizar� desde UI
+    float m_lightSpeedFactor; // actualiza desde UI
     float m_lightRadii[3] = { 5.0f, 4.0f, 6.0f };
     float m_lightHeights[3] = { 2.0f, 3.0f, 1.5f };
     float m_lightAngularSpeed[3] = { 1.0f, 1.2f, 0.8f };
 
-    // Funciones para inicializar geometr�a
+    // Funciones para inicializar geometria
     void setupTable();
     void setupSphere();
     void setupSkybox();

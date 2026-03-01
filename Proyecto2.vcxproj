@@ -155,6 +155,8 @@
   <ItemGroup>
     <ClInclude Include="src\3DViewer.h" />
     <ClInclude Include="src\Interface.h" />
+    <ClInclude Include="src\stb_image.h" />
+    <ClInclude Include="src\tiny_obj_loader.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
