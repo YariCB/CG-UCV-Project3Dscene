@@ -52,6 +52,8 @@ private:
 
     bool setupSimpleShader(); 
 
+    unsigned int loadCubemap(std::vector<std::string> faces);
+
 protected:
     int width = 1280;
     int height = 720;
@@ -62,6 +64,7 @@ protected:
     GLuint m_tableVBO = 0;
     size_t m_tableVertexCount = 0;
     GLuint m_tableTexture = 0;
+    bool m_tableHasTexCoords = false;
 
     GLuint m_shaderProgram = 0;
     double lastTime = 0.0;
@@ -70,6 +73,7 @@ protected:
     GLuint m_vbo = 0;
     GLuint m_skyboxVAO = 0, m_skyboxVBO = 0;
     GLuint m_sphereVAO = 0, m_sphereVBO = 0, m_sphereEBO = 0;
+    GLuint m_skyboxTexture = 0;
     
     bool mouseButtonsDown[3] = { false, false, false };
     int m_sphereIndexCount = 0;
@@ -104,6 +108,28 @@ protected:
         }
     )glsl";
 
+    // Prueba de debug
+    //const char* fragmentShaderSrc = R"glsl(
+    //    #version 330 core
+    //    in vec2 TexCoords;
+    //    out vec4 FragColor;
+    //    void main() {
+    //        FragColor = vec4(1.0, 0.0, 0.0, 1.0); // Rojo sólido
+    //    }
+    //)glsl";
+
+    ////Prueba de debug para visualizar normales
+    //const char* fragmentShaderSrc = R"glsl(
+    //    #version 330 core
+    //    in vec3 Normal;
+    //    out vec4 FragColor;
+    //    void main() {
+    //        // Normalizar y mapear de [-1,1] a [0,1]
+    //        vec3 n = normalize(Normal);
+    //        FragColor = vec4(n * 0.5 + 0.5, 1.0);
+    //    }
+    //)glsl";
+
     const char* fragmentShaderSrc = R"glsl(
         #version 330 core
         in vec3 FragPos;
@@ -117,6 +143,7 @@ protected:
         uniform bool attenuationEnabled;
         uniform sampler2D texture_diffuse;
         uniform bool useTexture;
+        uniform samplerCube skybox;
 
         uniform vec3 materialAmbient;
         uniform vec3 materialDiffuse;
@@ -149,17 +176,25 @@ protected:
                 float attenuation = 1.0;
                 if (attenuationEnabled) {
                     float constant = 1.0;
-                    float linear = 0.01;
-                    float quadratic = 0.002;
+                    // valores reducidos para que la luz alcance distancias mayores dentro de la sala
+                    float linear = 0.002;
+                    float quadratic = 0.0005;
                     attenuation = 1.0 / (constant + linear * distance + quadratic * distance * distance);
                 }
 
-                // Ambiental: usar componente ambiental de la luz y del material
-                vec3 ambient = lightAmbient[i] * materialAmbient * baseColor;
+                    // Ambiental: usar componente ambiental de la luz y del material
+                    vec3 ambient = lightAmbient[i] * materialAmbient * baseColor;
+
+                    // Añadimos una ambient global para simular luz ambiente (día) y contribución del skybox
+                    vec3 envColor = vec3(0.0);
+                    // Sample environment using normal direction for soft ambient contribution
+                    envColor = texture(skybox, normalize(Normal)).rgb;
+                    vec3 globalAmbient = 0.35 * baseColor + 0.45 * envColor * baseColor;
+                    ambient += globalAmbient;
 
                 // Difuso multiplicado por la propiedad difusa del material
                 float diff = max(dot(norm, lightDir), 0.0);
-                vec3 diffuse = lightDiffuse[i] * diff * (materialDiffuse * baseColor);
+                vec3 diffuse = lightDiffuse[i] * diff * (materialDiffuse * baseColor) * 1.25;
 
                 // Especular (Phong / Blinn-Phong), usando propiedad especular y shininess
                 vec3 specular = vec3(0.0);
@@ -182,7 +217,32 @@ protected:
     )glsl";
 
     GLuint m_simpleShader = 0;
-    const char* simpleVertexSrc = R"glsl(
+    GLuint m_lightShader = 0;
+    const char* skyboxVertexSrc = R"glsl(
+        #version 330 core
+        layout (location = 0) in vec3 aPos;
+        out vec3 TexCoords;
+        uniform mat4 projection;
+        uniform mat4 view;
+        void main() {
+            TexCoords = aPos;
+            vec4 pos = projection * view * vec4(aPos, 1.0);
+            gl_Position = pos.xyww; // Truco para que siempre esté al fondo
+        }
+    )glsl";
+
+    const char* skyboxFragmentSrc = R"glsl(
+        #version 330 core
+        out vec4 FragColor;
+        in vec3 TexCoords;
+        uniform samplerCube skybox;
+        void main() {    
+            FragColor = texture(skybox, TexCoords);
+        }
+    )glsl";
+
+    // Shaders para dibujar las esferas de luz (simple color, transformaciones)
+    const char* lightVertexSrc = R"glsl(
         #version 330 core
         layout(location = 0) in vec3 aPos;
         uniform mat4 model;
@@ -192,10 +252,11 @@ protected:
             gl_Position = projection * view * model * vec4(aPos, 1.0);
         }
     )glsl";
-        const char* simpleFragmentSrc = R"glsl(
+
+    const char* lightFragmentSrc = R"glsl(
         #version 330 core
-        uniform vec3 color;
         out vec4 FragColor;
+        uniform vec3 color;
         void main() {
             FragColor = vec4(color, 1.0);
         }

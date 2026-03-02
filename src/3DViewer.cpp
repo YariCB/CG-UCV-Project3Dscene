@@ -30,6 +30,7 @@ C3DViewer::~C3DViewer()
     if (m_window) glfwDestroyWindow(m_window);
 
     if (m_simpleShader) glDeleteProgram(m_simpleShader);
+    if (m_lightShader) glDeleteProgram(m_lightShader);
     if (m_sphereVAO) glDeleteVertexArrays(1, &m_sphereVAO);
     if (m_sphereVBO) glDeleteBuffers(1, &m_sphereVBO);
     if (m_sphereEBO) glDeleteBuffers(1, &m_sphereEBO);
@@ -86,8 +87,12 @@ bool C3DViewer::setup()
     // Mesa OBJ
     loadOBJ("OBJs/table/table4.obj");
     m_tableTexture = loadTexture("OBJs/table/tipical.jpg");
+    if (m_tableTexture == 0) std::cout << "Warning: table texture not loaded (m_tableTexture==0)" << std::endl;
 
     if (!setupSimpleShader()) return false;
+
+    // Enable seamless cubemap sampling to avoid seams
+    glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 
     // Setup VAO y VBO para el triángulo
     //setupTriangle();
@@ -98,6 +103,18 @@ bool C3DViewer::setup()
     if (m_tableVertexCount == 0) {
         setupTable();
     }
+
+    std::vector<std::string> faces = {
+        "OBJs/room/room_texture_1.png", // Derecha
+        "OBJs/room/room_texture_2.png", // Izquierda
+        "OBJs/room/ceiling_texture.png", // Techo
+        "OBJs/room/floor_texture.png",   // Suelo
+        "OBJs/room/room_texture_3.png", // Atrás
+        "OBJs/room/room_texture_4.png"  // Frente
+    };
+
+    m_skyboxTexture = loadCubemap(faces);
+
     setupSkybox();
     setupSphere();
 
@@ -244,6 +261,14 @@ void C3DViewer::onCursorPos(double xpos, double ypos)
 void C3DViewer::render() {
     update();
 
+    // Impresión de verificación
+    for (int i = 0; i < 3; i++) {
+        std::cout << "Luz " << i << ": enabled=" << globalUIState.lightEnabled[i]
+            << " color=(" << globalUIState.lightColors[i][0] << ","
+            << globalUIState.lightColors[i][1] << ","
+            << globalUIState.lightColors[i][2] << ")" << std::endl;
+    }
+
     glDisable(GL_CULL_FACE);
     glEnable(GL_DEPTH_TEST);
 
@@ -257,6 +282,18 @@ void C3DViewer::render() {
 
     // --- Dibujo de objetos iluminados ---
     glUseProgram(m_shaderProgram);
+    // Bind environment cubemap to texture unit 1 so shader can sample it for ambient
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_skyboxTexture);
+    // restore active to unit 0 for diffuse texture below
+    glActiveTexture(GL_TEXTURE0);
+
+    // Impresión de verificación
+    /*GLint locTex = glGetUniformLocation(m_shaderProgram, "texture_diffuse");
+    GLint locUseTex = glGetUniformLocation(m_shaderProgram, "useTexture");
+    std::cout << "Uniform texture_diffuse location: " << locTex << std::endl;
+    std::cout << "Uniform useTexture location: " << locUseTex << std::endl;*/
+
     glm::mat4 model = glm::mat4(1.0f);
     /*model = glm::scale(model, glm::vec3(0.1f));*/
     // Matrices
@@ -268,10 +305,10 @@ void C3DViewer::render() {
     // Atenuación
     glUniform1i(glGetUniformLocation(m_shaderProgram, "attenuationEnabled"), globalUIState.attenuation);
 
-    // Configuración de materiales (coherente con textura de madera)
-    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.12f, 0.05f, 0.02f);
-    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.8f, 0.7f, 0.6f);
-    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.15f, 0.15f, 0.15f);
+        // aumentar ambient para iluminación tipo día
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.28f, 0.12f, 0.06f);
+    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 1.0f, 1.0f, 1.0f);
+    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 1.0f, 1.0f, 1.0f);
     glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 32.0f);
 
     // Luces: posiciones, colores, etc.
@@ -296,6 +333,13 @@ void C3DViewer::render() {
 
     // --- Dibujo de la Mesa OBJ ---
     glUseProgram(m_shaderProgram);
+
+    // Impresión de verificación
+   /* locTex = glGetUniformLocation(m_shaderProgram, "texture_diffuse");
+    locUseTex = glGetUniformLocation(m_shaderProgram, "useTexture");
+    std::cout << "Uniform texture_diffuse location: " << locTex << std::endl;
+    std::cout << "Uniform useTexture location: " << locUseTex << std::endl;*/
+
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
     glm::mat4 tableModel = glm::mat4(1.0f);
@@ -305,40 +349,63 @@ void C3DViewer::render() {
     // Textura
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_tableTexture);
+
+    // Print para verificar vinculación
+    /*GLint boundTex;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundTex);
+    std::cout << "Textura vinculada en unidad 0: " << boundTex << " (esperada: " << m_tableTexture << ")" << std::endl;*/
+
     glUniform1i(glGetUniformLocation(m_shaderProgram, "texture_diffuse"), 0);
-    glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), 1);
+    // Solo usar la textura si existe y el mesh tiene coordenadas UV
+    int useTex = (m_tableTexture != 0 && m_tableHasTexCoords) ? 1 : 0;
+    glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), useTex);
     // Dibujo
     glBindVertexArray(m_tableVAO);
     glDrawArrays(GL_TRIANGLES, 0, m_tableVertexCount);
 
     // --- Dibujo de skybox ---
-    glUseProgram(m_simpleShader);
-    glm::mat4 skyView = glm::mat4(glm::mat3(view)); // Sin componente de traslación (es el cielo)
+    // glUseProgram(m_simpleShader);
+    // glm::mat4 skyView = glm::mat4(glm::mat3(view)); // Sin componente de traslación (es el cielo)
+    // glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "view"), 1, GL_FALSE, glm::value_ptr(skyView));
+    // glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+    // glm::mat4 skyModel = glm::scale(glm::mat4(1.0f), glm::vec3(100.0f));
+    // glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "model"), 1, GL_FALSE, glm::value_ptr(skyModel));
+    // glUniform3f(glGetUniformLocation(m_simpleShader, "color"), 0.8f, 0.8f, 0.8f); // gris claro
+    // GLboolean cullEnabled = glIsEnabled(GL_CULL_FACE);
+    // if (cullEnabled) glDisable(GL_CULL_FACE);
+    // glDepthMask(GL_FALSE);
+    // glBindVertexArray(m_skyboxVAO);
+    // glDrawArrays(GL_TRIANGLES, 0, 36);
+    // glDepthMask(GL_TRUE);
+    // if (cullEnabled) glEnable(GL_CULL_FACE);
+    glUseProgram(m_simpleShader); // Asegúrate de vincular los nuevos shaders aquí
+    glm::mat4 skyView = glm::mat4(glm::mat3(view)); 
     glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "view"), 1, GL_FALSE, glm::value_ptr(skyView));
     glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-    glm::mat4 skyModel = glm::scale(glm::mat4(1.0f), glm::vec3(100.0f));
-    glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "model"), 1, GL_FALSE, glm::value_ptr(skyModel));
-    glUniform3f(glGetUniformLocation(m_simpleShader, "color"), 0.8f, 0.8f, 0.8f); // gris claro
-    GLboolean cullEnabled = glIsEnabled(GL_CULL_FACE);
-    if (cullEnabled) glDisable(GL_CULL_FACE);
+
+    // Renderizar skybox: permitir que pase la profundidad igual y evitar que el skybox escriba
+    glDepthFunc(GL_LEQUAL); // Importante para que el skybox no tape los objetos
     glDepthMask(GL_FALSE);
     glBindVertexArray(m_skyboxVAO);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_skyboxTexture);
     glDrawArrays(GL_TRIANGLES, 0, 36);
     glDepthMask(GL_TRUE);
-    if (cullEnabled) glEnable(GL_CULL_FACE);
+    glDepthFunc(GL_LESS);
 
     // --- Dibujo de esferas de luz ---
-    glUseProgram(m_simpleShader);
-    glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "view"), 1, GL_FALSE, glm::value_ptr(view));
-    glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+    // Dibujar las esferas de luz con su shader propio (transformado por model)
+    glUseProgram(m_lightShader);
+    glUniformMatrix4fv(glGetUniformLocation(m_lightShader, "view"), 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(glGetUniformLocation(m_lightShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
     glBindVertexArray(m_sphereVAO);
     for (int i = 0; i < 3; i++) {
         if (!globalUIState.lightEnabled[i]) continue;
         glm::mat4 model = glm::mat4(1.0f);
         model = glm::translate(model, m_lightPos[i]);
         model = glm::scale(model, glm::vec3(0.8f));
-        glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "model"), 1, GL_FALSE, glm::value_ptr(model));
-        glUniform3fv(glGetUniformLocation(m_simpleShader, "color"), 1, globalUIState.lightColors[i]);
+        glUniformMatrix4fv(glGetUniformLocation(m_lightShader, "model"), 1, GL_FALSE, glm::value_ptr(model));
+        glUniform3fv(glGetUniformLocation(m_lightShader, "color"), 1, globalUIState.lightColors[i]);
         glDrawElements(GL_TRIANGLES, m_sphereIndexCount, GL_UNSIGNED_INT, 0);
     }
 
@@ -405,6 +472,12 @@ bool C3DViewer::setupShader()
 
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
+    // Ensure sampler bindings for the main shader: texture_diffuse -> unit 0, skybox -> unit 1
+    glUseProgram(m_shaderProgram);
+    GLint locTex = glGetUniformLocation(m_shaderProgram, "texture_diffuse");
+    if (locTex >= 0) glUniform1i(locTex, 0);
+    GLint locSky = glGetUniformLocation(m_shaderProgram, "skybox");
+    if (locSky >= 0) glUniform1i(locSky, 1);
     return true;
 }
 
@@ -538,6 +611,9 @@ void C3DViewer::setupTable() {
 
     glGenVertexArrays(1, &m_tableVAO);
     glGenBuffers(1, &m_tableVBO);
+
+    // Esta mesa no tiene coordenadas UV por defecto
+    m_tableHasTexCoords = false;
 
     glBindVertexArray(m_tableVAO);
     GLenum err;
@@ -675,12 +751,12 @@ void C3DViewer::setupSphere() {
 
 bool C3DViewer::setupSimpleShader() {
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertexShader, 1, &simpleVertexSrc, nullptr);
+    glShaderSource(vertexShader, 1, &skyboxVertexSrc, nullptr);
     glCompileShader(vertexShader);
     if (!checkCompileErrors(vertexShader, "VERTEX")) return false;
 
     GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragmentShader, 1, &simpleFragmentSrc, nullptr);
+    glShaderSource(fragmentShader, 1, &skyboxFragmentSrc, nullptr);
     glCompileShader(fragmentShader);
     if (!checkCompileErrors(fragmentShader, "FRAGMENT")) return false;
 
@@ -692,6 +768,26 @@ bool C3DViewer::setupSimpleShader() {
 
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
+    // Asegurar que el sampler del skybox está en la unidad 0
+    glUseProgram(m_simpleShader);
+    GLint loc = glGetUniformLocation(m_simpleShader, "skybox");
+    if (loc >= 0) glUniform1i(loc, 0);
+    // Ahora creamos un shader sencillo para las esferas de luz
+    GLuint vert = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vert, 1, &lightVertexSrc, nullptr);
+    glCompileShader(vert);
+    if (!checkCompileErrors(vert, "VERTEX")) return false;
+    GLuint frag = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(frag, 1, &lightFragmentSrc, nullptr);
+    glCompileShader(frag);
+    if (!checkCompileErrors(frag, "FRAGMENT")) return false;
+    m_lightShader = glCreateProgram();
+    glAttachShader(m_lightShader, vert);
+    glAttachShader(m_lightShader, frag);
+    glLinkProgram(m_lightShader);
+    if (!checkCompileErrors(m_lightShader, "PROGRAM")) return false;
+    glDeleteShader(vert);
+    glDeleteShader(frag);
     return true;
 }
 
@@ -715,6 +811,7 @@ void C3DViewer::loadOBJ(const std::string& path) {
     std::cout << "Materiales cargados: " << materials.size() << std::endl;
 
     std::vector<Vertex> vertices;
+    bool hasTexCoords = false;
     for (const auto& shape : shapes) {
         for (const auto& index : shape.mesh.indices) {
             Vertex vertex{};
@@ -735,6 +832,7 @@ void C3DViewer::loadOBJ(const std::string& path) {
                     attrib.texcoords[2 * index.texcoord_index + 0],
                     attrib.texcoords[2 * index.texcoord_index + 1]
                 };
+                hasTexCoords = true;
             }
             // Por defecto asignamos color blanco (si el OBJ no trae color por vértice)
             vertex.Color = glm::vec3(1.0f, 1.0f, 1.0f);
@@ -742,6 +840,15 @@ void C3DViewer::loadOBJ(const std::string& path) {
         }
     }
     m_tableVertexCount = vertices.size();
+    m_tableHasTexCoords = hasTexCoords;
+    if (m_tableHasTexCoords) {
+        std::cout << "OBJ contiene UVs. Primeros TexCoords: ";
+        if (!vertices.empty()) {
+            std::cout << vertices[0].TexCoords.x << "," << vertices[0].TexCoords.y << std::endl;
+        }
+    } else {
+        std::cout << "OBJ no contiene UVs." << std::endl;
+    }
     std::cout << "Vertices totales procesados para dibujo: " << m_tableVertexCount << std::endl;
 
     glGenVertexArrays(1, &m_tableVAO);
@@ -768,24 +875,66 @@ unsigned int C3DViewer::loadTexture(const char* path) {
     unsigned int textureID;
     glGenTextures(1, &textureID);
     int width, height, nrComponents;
+    stbi_set_flip_vertically_on_load(true);
     unsigned char* data = stbi_load(path, &width, &height, &nrComponents, 0);
-    if (data) {
-        std::cout << "Textura cargada correctamente: " << path << " (" << width << "x" << height << ")" << std::endl;
-        GLenum format = (nrComponents == 4) ? GL_RGBA : GL_RGB;
-        glBindTexture(GL_TEXTURE_2D, textureID);
-        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
-        glGenerateMipmap(GL_TEXTURE_2D);
-
-        // Set texture wrapping and filtering options
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-        stbi_image_free(data);
-    }
-    else {
+    std::cout << "Cargando textura: " << path << " -> " << (data ? "OK" : "FALLÓ") << std::endl;
+    if (!data) {
         std::cerr << "ERROR: No se pudo encontrar la imagen en: " << path << std::endl;
+        glDeleteTextures(1, &textureID);
+        return 0;
     }
+    std::cout << "Textura cargada correctamente: " << path << " (" << width << "x" << height << ")" << std::endl;
+    GLenum format = GL_RGB;
+    if (nrComponents == 1) format = GL_RED;
+    else if (nrComponents == 3) format = GL_RGB;
+    else if (nrComponents == 4) format = GL_RGBA;
+
+    glBindTexture(GL_TEXTURE_2D, textureID);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+    glGenerateMipmap(GL_TEXTURE_2D);
+
+    // Set texture wrapping and filtering options
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    stbi_image_free(data);
+    return textureID;
+}
+
+unsigned int C3DViewer::loadCubemap(std::vector<std::string> faces) {
+    unsigned int textureID;
+    glGenTextures(1, &textureID);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
+    int width, height, nrChannels;
+    stbi_set_flip_vertically_on_load(false);
+    if (faces.size() != 6) {
+        std::cerr << "Warning: cubemap expects 6 faces, got " << faces.size() << std::endl;
+    }
+    for (unsigned int i = 0; i < faces.size(); i++) {
+        unsigned char *data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, 0);
+        if (data) {
+            GLenum format = GL_RGB;
+            if (nrChannels == 1) format = GL_RED;
+            else if (nrChannels == 3) format = GL_RGB;
+            else if (nrChannels == 4) format = GL_RGBA;
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            // Se cargan en el orden: +X, -X, +Y, -Y, +Z, -Z
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
+                         0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+            stbi_image_free(data);
+            std::cout << "Cubemap cara " << i << " cargada: " << faces[i] << std::endl;
+        } else {
+            std::cout << "Cubemap tex failed to load at path: " << faces[i] << std::endl;
+        }
+    }
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
     return textureID;
 }
