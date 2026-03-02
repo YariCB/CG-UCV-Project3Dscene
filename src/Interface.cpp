@@ -32,6 +32,7 @@ void DrawMainPanel(UIState& state) {
         ImGui::RadioButton("FPS Mode (Mini-man)", &state.cameraMode, 0);
         ImGui::SameLine();
         ImGui::RadioButton("GOD Mode", &state.cameraMode, 1);
+        ImGui::Text("Right-click for free movement");
     }
 
     // 4. Mapeos y Selección de Objetos (Group Box)

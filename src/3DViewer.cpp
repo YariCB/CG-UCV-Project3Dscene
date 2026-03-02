@@ -110,17 +110,47 @@ bool C3DViewer::setup()
     glfwSetMouseButtonCallback(m_window, mouseButtonCallbackStatic);
     glfwSetCursorPosCallback(m_window, cursorPosCallbackStatic);
 
+    // Inicializar temporizador de frames y posición del cursor
+    m_lastFrame = glfwGetTime();
+    lastX = width / 2.0;
+    lastY = height / 2.0;
+
     return true;
 }
 
 void C3DViewer::update() {
-    double time = glfwGetTime();
+    double currentTime = glfwGetTime();
+    double deltaTime = currentTime - m_lastFrame;
+    if (deltaTime < 0.0) deltaTime = 0.0;
+    m_lastFrame = currentTime;
+
+    // Actualizar posiciones de las luces (animación) usando el factor de la UI
     for (int i = 0; i < 3; i++) {
-        float angle = time * m_lightAngularSpeed[i] * globalUIState.lightSpeed;
+        float angle = (float)(currentTime * m_lightAngularSpeed[i] * globalUIState.lightSpeed);
         m_lightPos[i].x = m_lightRadii[i] * cos(angle);
         m_lightPos[i].z = m_lightRadii[i] * sin(angle);
         m_lightPos[i].y = m_lightHeights[i];
     }
+
+	// Movimiento del usuario: Up/Down manejan avance/retroceso y Right/Left manejan desplazamiento lateral
+    float velocity = movementSpeed * deltaTime;
+    glm::vec3 moveDir = cameraFront;
+    if (globalUIState.cameraMode == 0) { // Modo FPS: El ojo del humano miniatura
+        moveDir.y = 0.0f;
+        if (glm::length(moveDir) > 0.001f)
+            moveDir = glm::normalize(moveDir);
+    }
+    glm::vec3 cameraRight = glm::normalize(glm::cross(cameraFront, glm::vec3(0.0f, 1.0f, 0.0f)));
+
+    // Movimientos
+    if (glfwGetKey(m_window, GLFW_KEY_UP) == GLFW_PRESS)
+        cameraPos += moveDir * velocity;
+    if (glfwGetKey(m_window, GLFW_KEY_DOWN) == GLFW_PRESS)
+        cameraPos -= moveDir * velocity;
+    if (glfwGetKey(m_window, GLFW_KEY_LEFT) == GLFW_PRESS)
+        cameraPos -= cameraRight * velocity;
+    if (glfwGetKey(m_window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+        cameraPos += cameraRight * velocity;
 }
 
 void C3DViewer::mainLoop() 
@@ -141,44 +171,74 @@ void C3DViewer::mainLoop()
 
 void C3DViewer::onKey(int key, int scancode, int action, int mods) 
 {
-
-    if (action == GLFW_PRESS)
-    {
-        std::cout << "Key " << key << " pressed\n";
-        if (key == GLFW_KEY_ESCAPE)
-            glfwSetWindowShouldClose(m_window, GLFW_TRUE);
+    // Manejo de teclas para movimiento (Up/Down) y ESC
+    if (action == GLFW_PRESS) {
+        if (key == GLFW_KEY_ESCAPE) {
+            if (cursorCaptured) {
+                glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+                cursorCaptured = false;
+            } else {
+                glfwSetWindowShouldClose(m_window, GLFW_TRUE);
+            }
+        }
+        else if (key == GLFW_KEY_UP) {
+            moveForward = true;
+        }
+        else if (key == GLFW_KEY_DOWN) {
+            moveBackward = true;
+        }
     }
-    else if (action == GLFW_RELEASE)
-        std::cout << "Key " << key << " released\n";
+    else if (action == GLFW_RELEASE) {
+        if (key == GLFW_KEY_UP) moveForward = false;
+        else if (key == GLFW_KEY_DOWN) moveBackward = false;
+    }
 }
 
 void C3DViewer::onMouseButton(int button, int action, int mods) 
 {
-    if (button >= 0 && button < 3)
-    {
-        double xpos, ypos;
-        glfwGetCursorPos(m_window, &xpos, &ypos);
-        if (action == GLFW_PRESS)
-        {
-            mouseButtonsDown[button] = true;
-            // Obtener posici�n actual del cursor
-            std::cout << "Mouse button " << button << " pressed at position (" << xpos << ", " << ypos << ")\n";
-        }
-        else if (action == GLFW_RELEASE)
-        {
-
-            mouseButtonsDown[button] = false;
-            std::cout << "Mouse button " << button << " released at position (" << xpos << ", " << ypos << ")\n";
+    // Botón derecho para capturar el cursor y entrar en modo look
+    if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+        if (action == GLFW_PRESS) {
+            glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            cursorCaptured = true;
+            firstMouse = true;
+            double x, y; glfwGetCursorPos(m_window, &x, &y); lastX = x; lastY = y;
+        } else if (action == GLFW_RELEASE) {
+            glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            cursorCaptured = false;
         }
     }
 }
 
 void C3DViewer::onCursorPos(double xpos, double ypos) 
 {
-    if (mouseButtonsDown[0] || mouseButtonsDown[1] || mouseButtonsDown[2]) 
-    {
-        std::cout << "Mouse move at (" << xpos << ", " << ypos << ")\n";
+    if (!cursorCaptured) return;
+
+    if (firstMouse) {
+        lastX = xpos;
+        lastY = ypos;
+        firstMouse = false;
     }
+
+    float xoffset = float(xpos - lastX);
+    float yoffset = float(lastY - ypos);
+    lastX = xpos;
+    lastY = ypos;
+
+    xoffset *= mouseSensitivity;
+    yoffset *= mouseSensitivity;
+
+    yaw += xoffset;
+    pitch += yoffset;
+
+    if (pitch > 89.0f) pitch = 89.0f;
+    if (pitch < -89.0f) pitch = -89.0f;
+
+    glm::vec3 front;
+    front.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
+    front.y = sin(glm::radians(pitch));
+    front.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
+    cameraFront = glm::normalize(front);
 }
 
 void C3DViewer::render() {
@@ -190,9 +250,9 @@ void C3DViewer::render() {
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // --- Configuración de cámara ---
-    glm::vec3 camPos(0.0f, 1.5f, 15.0f);
-    glm::mat4 view = glm::lookAt(camPos, glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    // --- Configuración de cámara (posicion/dir controladas por la UI y mouse) ---
+    glm::vec3 camPos = cameraPos;
+    glm::mat4 view = glm::lookAt(camPos, camPos + cameraFront, cameraUp);
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)width / (float)height, 0.1f, 500.0f);
 
     // --- Dibujo de objetos iluminados ---
@@ -239,13 +299,8 @@ void C3DViewer::render() {
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
     glm::mat4 tableModel = glm::mat4(1.0f);
-    // Escala
-    tableModel = glm::scale(tableModel, glm::vec3(0.5f));  
-    // Posición
-    tableModel = glm::translate(tableModel, glm::vec3(0.0f, -80.0f, -40.0f));
-    // Rotación
-    tableModel = glm::rotate(tableModel, glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-    tableModel = glm::rotate(tableModel, glm::radians(10.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    tableModel = glm::translate(tableModel, glm::vec3(0.0f, 0.0f, 0.0f));
+    tableModel = glm::scale(tableModel, glm::vec3(0.5f));
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(tableModel));
     // Textura
     glActiveTexture(GL_TEXTURE0);

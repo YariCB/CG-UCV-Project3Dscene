@@ -203,9 +203,25 @@ protected:
 
     glm::vec3 m_lightPos[3];
     float m_lightSpeedFactor;
-    float m_lightRadii[3] = { 18.0f, 15.0f, 20.0f }; 
-    float m_lightHeights[3] = { 5.5f, 6.0f, 5.0f };
-    float m_lightAngularSpeed[3] = { 1.0f, 1.2f, 0.8f };
+    float m_lightRadii[3] = { 35.0f, 25.0f, 40.0f }; 
+    float m_lightHeights[3] = { 45.0f, 42.0f, 48.0f };
+    float m_lightAngularSpeed[3] = { 0.8f, 1.1f, 0.6f };
+
+    // Camera / navigation state
+    glm::vec3 cameraPos = glm::vec3(0.0f, 39.0f, 10.0f);
+    glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
+    glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
+    float yaw = -90.0f;
+    float pitch = 0.0f;
+    float movementSpeed = 5.0f;
+    float mouseSensitivity = 0.1f;
+    bool firstMouse = true;
+    double lastX = 0.0, lastY = 0.0;
+    bool cursorCaptured = false;
+    bool moveForward = false;
+    bool moveBackward = false;
+    double m_lastFrame = 0.0;
+    bool isGodMode = false;
 
     // Funciones para inicializar geometria
     void setupTable();
