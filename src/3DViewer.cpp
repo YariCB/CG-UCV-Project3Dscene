@@ -409,7 +409,7 @@ void C3DViewer::render() {
     for (int i = 0; i < 3; i++) {
         if (!globalUIState.lightEnabled[i]) continue;
         glm::mat4 lModel = glm::translate(glm::mat4(1.0f), m_lightPos[i]);
-        lModel = glm::scale(lModel, glm::vec3(1.5f));
+        lModel = glm::scale(lModel, glm::vec3(2.0f));
         glUniformMatrix4fv(glGetUniformLocation(m_lightShader, "model"), 1, GL_FALSE, glm::value_ptr(lModel));
         glUniform3fv(glGetUniformLocation(m_lightShader, "color"), 1, globalUIState.lightColors[i]);
         glDrawElements(GL_TRIANGLES, m_sphereIndexCount, GL_UNSIGNED_INT, 0);

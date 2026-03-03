@@ -157,7 +157,7 @@ protected:
             vec3 baseColor;
 
             if (isReflective) {
-                // Plateado oscuro
+                // Plateado oscuro (metal)
                 baseColor = vec3(0.12, 0.12, 0.12);
             } else {
                 baseColor = useTexture ? texColor.rgb : (length(Color) > 0.1 ? Color : vec3(0.6));
@@ -181,17 +181,24 @@ protected:
                     attenuation = 1.0 / (1.0 + 0.01 * distance + 0.0002 * distance * distance);
                 }
 
-                // Difuso (siempre con color base)
+                // Difuso
                 float diff = max(dot(norm, lightDir), 0.0);
-                vec3 diffuse = lightDiffuse[i] * diff * materialDiffuse * baseColor;
+                vec3 diffuse;
+                if (isReflective) {
+                    // Para la tetera, el color de la luz se suma directamente con bastante intensidad
+                    // y se mezcla con el color base oscuro.
+                    diffuse = lightDiffuse[i] * diff * 2.0; // factor alto para que se note el color
+                } else {
+                    diffuse = lightDiffuse[i] * diff * materialDiffuse * baseColor;
+                }
 
-                // Especular: más intensa para objetos reflectivos y con color de luz
+                // Especular (Blinn-Phong)
                 vec3 halfwayDir = normalize(lightDir + viewDir);
                 float spec = pow(max(dot(norm, halfwayDir), 0.0), materialShininess);
                 vec3 specular;
                 if (isReflective) {
-                    // Especular potente y del color de la luz
-                    specular = lightSpecular[i] * spec * materialSpecular * 10.0; // factor extra
+                    // Especular muy brillante, con el color de la luz
+                    specular = lightSpecular[i] * spec * materialSpecular * 12.0;
                 } else {
                     specular = lightSpecular[i] * spec * materialSpecular * baseColor;
                 }
@@ -252,20 +259,49 @@ protected:
     const char* lightVertexSrc = R"glsl(
         #version 330 core
         layout(location = 0) in vec3 aPos;
+        out vec3 LocalPos;
+        out vec3 FragPos;
+        out vec3 Normal;
         uniform mat4 model;
         uniform mat4 view;
         uniform mat4 projection;
         void main() {
+            LocalPos = aPos; // unit-sphere local position
+            FragPos = vec3(model * vec4(aPos, 1.0));
+            Normal = mat3(transpose(inverse(model))) * aPos;
             gl_Position = projection * view * model * vec4(aPos, 1.0);
         }
     )glsl";
 
     const char* lightFragmentSrc = R"glsl(
         #version 330 core
+        in vec3 LocalPos;
+        in vec3 FragPos;
+        in vec3 Normal;
         out vec4 FragColor;
         uniform vec3 color;
+        uniform vec3 viewPos;
+        // glow control: 0 = core, 1 = glow
+        uniform int glowPass;
+        uniform float glowIntensity;
+        uniform float glowFalloff; // larger -> tighter
         void main() {
-            FragColor = vec4(color, 1.0);
+            if (glowPass == 0) {
+                // Core pass: solid sphere color
+                FragColor = vec4(color, 1.0);
+            } else {
+                // Glow pass: compute radial falloff in local sphere space
+                float r = length(LocalPos);
+                // Local sphere has radius ~1. Remap so edges (r near 1.0)
+                float edge = smoothstep(1.0, 1.0 - (0.5 / glowFalloff), r);
+                // Also add a rim by view angle for thin highlights
+                vec3 N = normalize(Normal);
+                vec3 V = normalize(viewPos - FragPos);
+                float rim = pow(1.0 - max(dot(N, V), 0.0), 2.0);
+                float alpha = (1.0 - edge) * glowIntensity * rim;
+                // output additive color (alpha used by blending)
+                FragColor = vec4(color * alpha, alpha);
+            }
         }
     )glsl";
 
