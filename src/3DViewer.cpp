@@ -60,6 +60,14 @@ C3DViewer::~C3DViewer()
     if (m_shaderProgram) glDeleteProgram(m_shaderProgram);
     if (m_window) glfwDestroyWindow(m_window);
 
+    if (m_tableVAO) glDeleteVertexArrays(1, &m_tableVAO);
+    if (m_tableVBO) glDeleteBuffers(1, &m_tableVBO);
+    if (m_tableTexture) glDeleteTextures(1, &m_tableTexture);
+
+    if (m_teapotVAO) glDeleteVertexArrays(1, &m_teapotVAO);
+    if (m_teapotVBO) glDeleteBuffers(1, &m_teapotVBO);
+    if (m_teapotTexture) glDeleteTextures(1, &m_teapotTexture);
+
     if (m_simpleShader) glDeleteProgram(m_simpleShader);
     if (m_lightShader) glDeleteProgram(m_lightShader);
     if (m_sphereVAO) glDeleteVertexArrays(1, &m_sphereVAO);
@@ -116,9 +124,12 @@ bool C3DViewer::setup()
     if (!setupShader()) return false;
 
     // Mesa OBJ
-    loadOBJ("OBJs/table/table4.obj");
+    loadOBJTo("OBJs/table/table4.obj", m_tableVAO, m_tableVBO, m_tableVertexCount, m_tableHasTexCoords, m_tableMinY, m_tableMaxY);
     m_tableTexture = loadTexture("OBJs/table/tipical.jpg");
     if (m_tableTexture == 0) std::cout << "Warning: table texture not loaded (m_tableTexture==0)" << std::endl;
+
+    // Tetera OBJ (cargar en su propia malla para no sobrescribir la mesa)
+    loadOBJTo("OBJs/teapot/teapot.obj", m_teapotVAO, m_teapotVBO, m_teapotVertexCount, m_teapotHasTexCoords, m_teapotMinY, m_teapotMaxY);
 
     if (!setupSimpleShader()) return false;
 
@@ -380,7 +391,7 @@ void C3DViewer::render() {
     // --- Dibujo de la Mesa OBJ ---
     glUseProgram(m_shaderProgram);
 
-    float scale = 0.3f;
+    float scale = 0.5f;
     float displacementY = -m_tableMinY * scale;
 
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
@@ -400,6 +411,43 @@ void C3DViewer::render() {
     // Dibujo
     glBindVertexArray(m_tableVAO);
     glDrawArrays(GL_TRIANGLES, 0, m_tableVertexCount);
+
+    // --- Dibujo de la Tetera OBJ ---
+    if (m_teapotVertexCount > 0 && m_teapotVAO != 0) {
+        // Calcular escala relativa para que la tetera quepa sobre la mesa
+        float tableScale = 0.5f; // mismo scale usado para la mesa arriba
+        float tableHeight = tableScale * (m_tableMaxY - m_tableMinY);
+        float teapotHeightModel = (m_teapotMaxY - m_teapotMinY);
+        float teapotScale = 1.0f;
+        if (teapotHeightModel > 0.0001f)
+            teapotScale = (tableHeight * 0.30f) / teapotHeightModel; // ocupar ~30% de la altura de la mesa
+
+        // Posicionar la tetera para que su mínima Y toque la superficie superior de la mesa
+        float tableTopY = tableHeight; // ya desplazada para que minY de la mesa quede en 0
+        float teapotDisplacementY = -m_teapotMinY * teapotScale + tableTopY + 0.02f; // pequeño offset sobre la superficie
+
+        glm::mat4 teapotModel = glm::mat4(1.0f);
+        teapotModel = glm::translate(teapotModel, glm::vec3(0.0f, teapotDisplacementY, 0.0f));
+        teapotModel = glm::scale(teapotModel, glm::vec3(teapotScale));
+
+        glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(teapotModel));
+
+        // Material para la tetera
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.12f, 0.12f, 0.12f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.55f, 0.55f, 0.55f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.9f, 0.9f, 0.9f);
+        glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 96.0f);
+
+
+        // Bind de textura si existiera
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, m_teapotTexture);
+        int useTexTeapot = (m_teapotTexture != 0 && m_teapotHasTexCoords) ? 1 : 0;
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), useTexTeapot);
+
+        glBindVertexArray(m_teapotVAO);
+        glDrawArrays(GL_TRIANGLES, 0, m_teapotVertexCount);
+    }
 
     // --- Dibujo de esferas de luz ---
     // Dibujar las esferas de luz con su shader propio (transformado por model)
@@ -624,6 +672,9 @@ void C3DViewer::setupTable() {
 
     // Esta mesa no tiene coordenadas UV por defecto
     m_tableHasTexCoords = false;
+    // Valores por defecto de alturas en el cubo de la mesa (coinciden con los vértices usados)
+    m_tableMinY = -0.5f;
+    m_tableMaxY = 0.5f;
 
     glBindVertexArray(m_tableVAO);
     GLenum err;
@@ -1039,4 +1090,117 @@ unsigned int C3DViewer::loadCubemap(std::vector<std::string> faces) {
     }
 
     return textureID;
+}
+
+// Load OBJ into a provided mesh (doesn't overwrite table members)
+void C3DViewer::loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVBO, size_t& outVertexCount, bool& outHasTexCoords, float& outMinY, float& outMaxY) {
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warn, err;
+
+    std::cout << "Intentando cargar modelo desde: " << path << std::endl;
+
+    std::string baseDir = "";
+    size_t pos = path.find_last_of("/\\");
+    if (pos != std::string::npos) baseDir = path.substr(0, pos + 1);
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str(), baseDir.c_str())) {
+        std::cout << "Error cargando OBJ: " << err << std::endl;
+        return;
+    }
+
+    std::cout << "--- Modelo cargado con exito ---" << std::endl;
+    std::cout << "Vertices encontrados: " << attrib.vertices.size() / 3 << std::endl;
+    std::cout << "Caras/Formas encontradas: " << shapes.size() << std::endl;
+    std::cout << "Materiales cargados: " << materials.size() << std::endl;
+
+    std::vector<Vertex> vertices;
+    bool hasTexCoords = false;
+    bool hasNormals = false;
+    for (const auto& shape : shapes) {
+        for (const auto& index : shape.mesh.indices) {
+            Vertex vertex{};
+            vertex.Position = {
+                attrib.vertices[3 * index.vertex_index + 0],
+                attrib.vertices[3 * index.vertex_index + 1],
+                attrib.vertices[3 * index.vertex_index + 2]
+            };
+            if (index.normal_index >= 0) {
+                hasNormals = true;
+                vertex.Normal = {
+                    attrib.normals[3 * index.normal_index + 0],
+                    attrib.normals[3 * index.normal_index + 1],
+                    attrib.normals[3 * index.normal_index + 2]
+                };
+            }
+            if (index.texcoord_index >= 0) {
+                vertex.TexCoords = {
+                    attrib.texcoords[2 * index.texcoord_index + 0],
+                    attrib.texcoords[2 * index.texcoord_index + 1]
+                };
+                hasTexCoords = true;
+            }
+            vertex.Color = glm::vec3(1.0f, 1.0f, 1.0f);
+            vertices.push_back(vertex);
+        }
+    }
+    outVertexCount = vertices.size();
+    outHasTexCoords = hasTexCoords;
+
+    float minY = std::numeric_limits<float>::max();
+    float maxY = -std::numeric_limits<float>::max();
+    for (const auto& v : vertices) {
+        if (v.Position.y < minY) minY = v.Position.y;
+        if (v.Position.y > maxY) maxY = v.Position.y;
+    }
+    outMinY = minY;
+    outMaxY = maxY;
+    std::cout << "Altura del OBJ: minY = " << minY << ", maxY = " << maxY << ", altura total = " << (maxY - minY) << std::endl;
+
+    if (!hasNormals && outVertexCount >= 3) {
+        for (size_t i = 0; i + 2 < vertices.size(); i += 3) {
+            glm::vec3 v0 = vertices[i + 0].Position;
+            glm::vec3 v1 = vertices[i + 1].Position;
+            glm::vec3 v2 = vertices[i + 2].Position;
+            glm::vec3 faceNormal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+            if (glm::length(faceNormal) > 0.0f) {
+                vertices[i + 0].Normal += faceNormal;
+                vertices[i + 1].Normal += faceNormal;
+                vertices[i + 2].Normal += faceNormal;
+            }
+        }
+        for (size_t i = 0; i < vertices.size(); ++i) {
+            if (glm::length(vertices[i].Normal) > 0.0001f)
+                vertices[i].Normal = glm::normalize(vertices[i].Normal);
+            else
+                vertices[i].Normal = glm::vec3(0.0f, 1.0f, 0.0f);
+        }
+        std::cout << "Computed vertex normals for OBJ (was missing in file)." << std::endl;
+    }
+
+    if (outHasTexCoords) {
+        std::cout << "OBJ contiene UVs. Primeros TexCoords: ";
+        if (!vertices.empty()) {
+            std::cout << vertices[0].TexCoords.x << "," << vertices[0].TexCoords.y << std::endl;
+        }
+    }
+    else {
+        std::cout << "OBJ no contiene UVs." << std::endl;
+    }
+    std::cout << "Vertices totales procesados para dibujo: " << outVertexCount << std::endl;
+
+    glGenVertexArrays(1, &outVAO);
+    glGenBuffers(1, &outVBO);
+    glBindVertexArray(outVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, outVBO);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Normal));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Color));
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, TexCoords));
 }

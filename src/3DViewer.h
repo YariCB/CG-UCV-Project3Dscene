@@ -31,6 +31,8 @@ public:
 private:
     // Métodos de carga
     void loadOBJ(const std::string& path);
+    // Carga OBJ a una malla específica (no sobrescribe la mesa)
+    void loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVBO, size_t& outVertexCount, bool& outHasTexCoords, float& outMinY, float& outMaxY);
     unsigned int loadTexture(const char* path);
 
     // Callbacks y lógica
@@ -59,7 +61,7 @@ protected:
     int height = 720;
     GLFWwindow* m_window = nullptr;
 
-    // Buffers para la mesa OBJ
+    // Datos para la mesa
     GLuint m_tableVAO = 0;
     GLuint m_tableVBO = 0;
     size_t m_tableVertexCount = 0;
@@ -67,6 +69,14 @@ protected:
     bool m_tableHasTexCoords = false;
     float m_tableMinY;
     float m_tableMaxY;
+
+    // Datos para la tetera
+    GLuint m_teapotVAO = 0;
+    GLuint m_teapotVBO = 0;
+    size_t m_teapotVertexCount = 0;
+    float m_teapotMinY, m_teapotMaxY;
+    GLuint m_teapotTexture = 0;
+    bool m_teapotHasTexCoords = false;
 
     GLuint m_shaderProgram = 0;
     double lastTime = 0.0;
@@ -250,7 +260,7 @@ protected:
     float m_lightAngularSpeed[3] = { 0.8f, 1.1f, 0.6f };
 
     // Camera / navigation state
-    glm::vec3 cameraPos = glm::vec3(0.0f, 24.0f, 10.0f);
+    glm::vec3 cameraPos = glm::vec3(0.0f, 38.0f, 10.0f);
     glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
     glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
     float yaw = -90.0f;
