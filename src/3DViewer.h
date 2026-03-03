@@ -19,7 +19,7 @@ struct Vertex {
     glm::vec2 TexCoords;
 };
 
-class C3DViewer 
+class C3DViewer
 {
 
 public:
@@ -50,7 +50,7 @@ private:
     static void mouseButtonCallbackStatic(GLFWwindow* window, int button, int action, int mods);
     static void cursorPosCallbackStatic(GLFWwindow* window, double xpos, double ypos);
 
-    bool setupSimpleShader(); 
+    bool setupSimpleShader();
 
     unsigned int loadCubemap(std::vector<std::string> faces);
 
@@ -65,6 +65,8 @@ protected:
     size_t m_tableVertexCount = 0;
     GLuint m_tableTexture = 0;
     bool m_tableHasTexCoords = false;
+    float m_tableMinY;
+    float m_tableMaxY;
 
     GLuint m_shaderProgram = 0;
     double lastTime = 0.0;
@@ -74,7 +76,7 @@ protected:
     GLuint m_skyboxVAO = 0, m_skyboxVBO = 0;
     GLuint m_sphereVAO = 0, m_sphereVBO = 0, m_sphereEBO = 0;
     GLuint m_skyboxTexture = 0;
-    
+
     bool mouseButtonsDown[3] = { false, false, false };
     int m_sphereIndexCount = 0;
 
@@ -107,28 +109,6 @@ protected:
             gl_Position = projection * view * vec4(FragPos, 1.0);
         }
     )glsl";
-
-    // Prueba de debug
-    //const char* fragmentShaderSrc = R"glsl(
-    //    #version 330 core
-    //    in vec2 TexCoords;
-    //    out vec4 FragColor;
-    //    void main() {
-    //        FragColor = vec4(1.0, 0.0, 0.0, 1.0); // Rojo sólido
-    //    }
-    //)glsl";
-
-    ////Prueba de debug para visualizar normales
-    //const char* fragmentShaderSrc = R"glsl(
-    //    #version 330 core
-    //    in vec3 Normal;
-    //    out vec4 FragColor;
-    //    void main() {
-    //        // Normalizar y mapear de [-1,1] a [0,1]
-    //        vec3 n = normalize(Normal);
-    //        FragColor = vec4(n * 0.5 + 0.5, 1.0);
-    //    }
-    //)glsl";
 
     const char* fragmentShaderSrc = R"glsl(
         #version 330 core
@@ -212,6 +192,7 @@ protected:
 
                 result += (ambient + diffuse + specular) * attenuation;
             }
+            // Final lighting output
             FragColor = vec4(clamp(result, 0.0, 1.0), 1.0);
         }
     )glsl";
@@ -264,12 +245,12 @@ protected:
 
     glm::vec3 m_lightPos[3];
     float m_lightSpeedFactor;
-    float m_lightRadii[3] = { 35.0f, 25.0f, 40.0f }; 
+    float m_lightRadii[3] = { 35.0f, 25.0f, 40.0f };
     float m_lightHeights[3] = { 45.0f, 42.0f, 48.0f };
     float m_lightAngularSpeed[3] = { 0.8f, 1.1f, 0.6f };
 
     // Camera / navigation state
-    glm::vec3 cameraPos = glm::vec3(0.0f, 39.0f, 10.0f);
+    glm::vec3 cameraPos = glm::vec3(0.0f, 24.0f, 10.0f);
     glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
     glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
     float yaw = -90.0f;

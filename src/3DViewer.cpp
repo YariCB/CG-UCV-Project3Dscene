@@ -2,6 +2,7 @@
 #include "3DViewer.h"
 #include <iostream>
 #include <cstdio>
+#include <limits>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -14,6 +15,36 @@
 
 static UIState globalUIState;
 
+// Simple bilinear resize for RGBA image data. Returns newly allocated buffer (caller must delete[]).
+static unsigned char* resizeRGBA(const unsigned char* src, int srcW, int srcH, int dstW, int dstH) {
+    if (!src || srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0) return nullptr;
+    unsigned char* dst = new unsigned char[dstW * dstH * 4];
+    for (int y = 0; y < dstH; ++y) {
+        float v = (float)y * (float)(srcH) / (float)(dstH);
+        int y0 = (int)floor(v);
+        int y1 = std::min(y0 + 1, srcH - 1);
+        float fy = v - y0;
+        for (int x = 0; x < dstW; ++x) {
+            float u = (float)x * (float)(srcW) / (float)(dstW);
+            int x0 = (int)floor(u);
+            int x1 = std::min(x0 + 1, srcW - 1);
+            float fx = u - x0;
+            for (int c = 0; c < 4; ++c) {
+                float c00 = src[(y0 * srcW + x0) * 4 + c];
+                float c10 = src[(y0 * srcW + x1) * 4 + c];
+                float c01 = src[(y1 * srcW + x0) * 4 + c];
+                float c11 = src[(y1 * srcW + x1) * 4 + c];
+                float c0 = c00 * (1.0f - fx) + c10 * fx;
+                float c1 = c01 * (1.0f - fx) + c11 * fx;
+                float cval = c0 * (1.0f - fy) + c1 * fy;
+                int out = (int)(cval + 0.5f);
+                dst[(y * dstW + x) * 4 + c] = (unsigned char)std::min(255, std::max(0, out));
+            }
+        }
+    }
+    return dst;
+}
+
 C3DViewer::C3DViewer()
 {
 }
@@ -23,7 +54,7 @@ C3DViewer::~C3DViewer()
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
-    
+
     if (m_vbo) glDeleteBuffers(1, &m_vbo);
     if (m_vao) glDeleteVertexArrays(1, &m_vao);
     if (m_shaderProgram) glDeleteProgram(m_shaderProgram);
@@ -40,7 +71,7 @@ C3DViewer::~C3DViewer()
 
 bool C3DViewer::setup()
 {
-    if (!glfwInit()) 
+    if (!glfwInit())
         return false;
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -48,7 +79,7 @@ bool C3DViewer::setup()
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     m_window = glfwCreateWindow(width, height, "C3DViewer Window: Hello Triangle", NULL, NULL);
-    if (!m_window) 
+    if (!m_window)
     {
         glfwTerminate();
         return false;
@@ -57,13 +88,13 @@ bool C3DViewer::setup()
     glfwMakeContextCurrent(m_window);
 
     // Inicializar glad
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) 
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
         glfwDestroyWindow(m_window);
         glfwTerminate();
         return false;
     }
-    
+
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -73,13 +104,13 @@ bool C3DViewer::setup()
 
     ImGui_ImplGlfw_InitForOpenGL(m_window, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");
-    
+
     glfwSetWindowUserPointer(m_window, this);
     glfwSetFramebufferSizeCallback(m_window, [](GLFWwindow* window, int w, int h) {
         auto ptr = reinterpret_cast<C3DViewer*>(glfwGetWindowUserPointer(window));
-        if (ptr) 
+        if (ptr)
             ptr->resize(w, h);
-    });
+        });
 
     // Setup shader
     if (!setupShader()) return false;
@@ -105,12 +136,12 @@ bool C3DViewer::setup()
     }
 
     std::vector<std::string> faces = {
-        "OBJs/room/room_texture_1.png", // Derecha
+        "OBJs/room/room_texture_3.png", // Derecha
         "OBJs/room/room_texture_2.png", // Izquierda
         "OBJs/room/ceiling_texture.png", // Techo
         "OBJs/room/floor_texture.png",   // Suelo
-        "OBJs/room/room_texture_3.png", // Atrás
-        "OBJs/room/room_texture_4.png"  // Frente
+        "OBJs/room/room_texture_4.png", // Atrás
+        "OBJs/room/room_texture_1.png"  // Frente
     };
 
     m_skyboxTexture = loadCubemap(faces);
@@ -149,7 +180,7 @@ void C3DViewer::update() {
         m_lightPos[i].y = m_lightHeights[i];
     }
 
-	// Movimiento del usuario: Up/Down manejan avance/retroceso y Right/Left manejan desplazamiento lateral
+    // Movimiento del usuario: Up/Down manejan avance/retroceso y Right/Left manejan desplazamiento lateral
     float velocity = movementSpeed * deltaTime;
     glm::vec3 moveDir = cameraFront;
     if (globalUIState.cameraMode == 0) { // Modo FPS: El ojo del humano miniatura
@@ -170,9 +201,9 @@ void C3DViewer::update() {
         cameraPos += cameraRight * velocity;
 }
 
-void C3DViewer::mainLoop() 
+void C3DViewer::mainLoop()
 {
-    while (!glfwWindowShouldClose(m_window)) 
+    while (!glfwWindowShouldClose(m_window))
     {
         glfwPollEvents();
 
@@ -186,7 +217,7 @@ void C3DViewer::mainLoop()
     }
 }
 
-void C3DViewer::onKey(int key, int scancode, int action, int mods) 
+void C3DViewer::onKey(int key, int scancode, int action, int mods)
 {
     // Manejo de teclas para movimiento (Up/Down) y ESC
     if (action == GLFW_PRESS) {
@@ -194,7 +225,8 @@ void C3DViewer::onKey(int key, int scancode, int action, int mods)
             if (cursorCaptured) {
                 glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
                 cursorCaptured = false;
-            } else {
+            }
+            else {
                 glfwSetWindowShouldClose(m_window, GLFW_TRUE);
             }
         }
@@ -211,7 +243,7 @@ void C3DViewer::onKey(int key, int scancode, int action, int mods)
     }
 }
 
-void C3DViewer::onMouseButton(int button, int action, int mods) 
+void C3DViewer::onMouseButton(int button, int action, int mods)
 {
     // Botón derecho para capturar el cursor y entrar en modo look
     if (button == GLFW_MOUSE_BUTTON_RIGHT) {
@@ -220,14 +252,15 @@ void C3DViewer::onMouseButton(int button, int action, int mods)
             cursorCaptured = true;
             firstMouse = true;
             double x, y; glfwGetCursorPos(m_window, &x, &y); lastX = x; lastY = y;
-        } else if (action == GLFW_RELEASE) {
+        }
+        else if (action == GLFW_RELEASE) {
             glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
             cursorCaptured = false;
         }
     }
 }
 
-void C3DViewer::onCursorPos(double xpos, double ypos) 
+void C3DViewer::onCursorPos(double xpos, double ypos)
 {
     if (!cursorCaptured) return;
 
@@ -261,14 +294,6 @@ void C3DViewer::onCursorPos(double xpos, double ypos)
 void C3DViewer::render() {
     update();
 
-    // Impresión de verificación
-    for (int i = 0; i < 3; i++) {
-        std::cout << "Luz " << i << ": enabled=" << globalUIState.lightEnabled[i]
-            << " color=(" << globalUIState.lightColors[i][0] << ","
-            << globalUIState.lightColors[i][1] << ","
-            << globalUIState.lightColors[i][2] << ")" << std::endl;
-    }
-
     glDisable(GL_CULL_FACE);
     glEnable(GL_DEPTH_TEST);
 
@@ -280,6 +305,33 @@ void C3DViewer::render() {
     glm::mat4 view = glm::lookAt(camPos, camPos + cameraFront, cameraUp);
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)width / (float)height, 0.1f, 500.0f);
 
+    // --- Dibujo de skybox ---
+    // El skybox no usa iluminación de escena; se dibuja primero para evitar conflictos de profundidad.
+    glUseProgram(m_simpleShader);
+    glm::mat4 skyView = glm::mat4(glm::mat3(view));
+    glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "view"), 1, GL_FALSE, glm::value_ptr(skyView));
+    glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_FALSE);
+    glBindVertexArray(m_skyboxVAO);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_skyboxTexture);
+    // Debug: verify cubemap is bound and its level0 size
+    GLint boundCube = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_CUBE_MAP, &boundCube);
+    if (boundCube == 0) {
+        //std::cout << "Debug: no cubemap bound to unit 0 (binding==0)\n";
+    }
+    else {
+        GLint w = 0, h = 0;
+        glGetTexLevelParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0, GL_TEXTURE_WIDTH, &w);
+        glGetTexLevelParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0, GL_TEXTURE_HEIGHT, &h);
+        //std::cout << "Debug: cubemap bound (id=" << boundCube << ") level0 size: " << w << "x" << h << std::endl;
+    }
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+    glDepthMask(GL_TRUE);
+    glDepthFunc(GL_LESS);
+
     // --- Dibujo de objetos iluminados ---
     glUseProgram(m_shaderProgram);
     // Bind environment cubemap to texture unit 1 so shader can sample it for ambient
@@ -287,12 +339,6 @@ void C3DViewer::render() {
     glBindTexture(GL_TEXTURE_CUBE_MAP, m_skyboxTexture);
     // restore active to unit 0 for diffuse texture below
     glActiveTexture(GL_TEXTURE0);
-
-    // Impresión de verificación
-    /*GLint locTex = glGetUniformLocation(m_shaderProgram, "texture_diffuse");
-    GLint locUseTex = glGetUniformLocation(m_shaderProgram, "useTexture");
-    std::cout << "Uniform texture_diffuse location: " << locTex << std::endl;
-    std::cout << "Uniform useTexture location: " << locUseTex << std::endl;*/
 
     glm::mat4 model = glm::mat4(1.0f);
     /*model = glm::scale(model, glm::vec3(0.1f));*/
@@ -305,8 +351,8 @@ void C3DViewer::render() {
     // Atenuación
     glUniform1i(glGetUniformLocation(m_shaderProgram, "attenuationEnabled"), globalUIState.attenuation);
 
-        // aumentar ambient para iluminación tipo día
-        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.28f, 0.12f, 0.06f);
+    // aumentar ambient para iluminación tipo día
+    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.28f, 0.12f, 0.06f);
     glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 1.0f, 1.0f, 1.0f);
     glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 1.0f, 1.0f, 1.0f);
     glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 32.0f);
@@ -334,26 +380,18 @@ void C3DViewer::render() {
     // --- Dibujo de la Mesa OBJ ---
     glUseProgram(m_shaderProgram);
 
-    // Impresión de verificación
-   /* locTex = glGetUniformLocation(m_shaderProgram, "texture_diffuse");
-    locUseTex = glGetUniformLocation(m_shaderProgram, "useTexture");
-    std::cout << "Uniform texture_diffuse location: " << locTex << std::endl;
-    std::cout << "Uniform useTexture location: " << locUseTex << std::endl;*/
+    float scale = 0.3f;
+    float displacementY = -m_tableMinY * scale;
 
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
     glm::mat4 tableModel = glm::mat4(1.0f);
-    tableModel = glm::translate(tableModel, glm::vec3(0.0f, 0.0f, 0.0f));
-    tableModel = glm::scale(tableModel, glm::vec3(0.5f));
+    tableModel = glm::translate(tableModel, glm::vec3(0.0f, displacementY, 0.0f));
+    tableModel = glm::scale(tableModel, glm::vec3(scale));
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(tableModel));
     // Textura
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_tableTexture);
-
-    // Print para verificar vinculación
-    /*GLint boundTex;
-    glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundTex);
-    std::cout << "Textura vinculada en unidad 0: " << boundTex << " (esperada: " << m_tableTexture << ")" << std::endl;*/
 
     glUniform1i(glGetUniformLocation(m_shaderProgram, "texture_diffuse"), 0);
     // Solo usar la textura si existe y el mesh tiene coordenadas UV
@@ -362,36 +400,6 @@ void C3DViewer::render() {
     // Dibujo
     glBindVertexArray(m_tableVAO);
     glDrawArrays(GL_TRIANGLES, 0, m_tableVertexCount);
-
-    // --- Dibujo de skybox ---
-    // glUseProgram(m_simpleShader);
-    // glm::mat4 skyView = glm::mat4(glm::mat3(view)); // Sin componente de traslación (es el cielo)
-    // glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "view"), 1, GL_FALSE, glm::value_ptr(skyView));
-    // glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-    // glm::mat4 skyModel = glm::scale(glm::mat4(1.0f), glm::vec3(100.0f));
-    // glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "model"), 1, GL_FALSE, glm::value_ptr(skyModel));
-    // glUniform3f(glGetUniformLocation(m_simpleShader, "color"), 0.8f, 0.8f, 0.8f); // gris claro
-    // GLboolean cullEnabled = glIsEnabled(GL_CULL_FACE);
-    // if (cullEnabled) glDisable(GL_CULL_FACE);
-    // glDepthMask(GL_FALSE);
-    // glBindVertexArray(m_skyboxVAO);
-    // glDrawArrays(GL_TRIANGLES, 0, 36);
-    // glDepthMask(GL_TRUE);
-    // if (cullEnabled) glEnable(GL_CULL_FACE);
-    glUseProgram(m_simpleShader); // Asegúrate de vincular los nuevos shaders aquí
-    glm::mat4 skyView = glm::mat4(glm::mat3(view)); 
-    glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "view"), 1, GL_FALSE, glm::value_ptr(skyView));
-    glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-
-    // Renderizar skybox: permitir que pase la profundidad igual y evitar que el skybox escriba
-    glDepthFunc(GL_LEQUAL); // Importante para que el skybox no tape los objetos
-    glDepthMask(GL_FALSE);
-    glBindVertexArray(m_skyboxVAO);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, m_skyboxTexture);
-    glDrawArrays(GL_TRIANGLES, 0, 36);
-    glDepthMask(GL_TRUE);
-    glDepthFunc(GL_LESS);
 
     // --- Dibujo de esferas de luz ---
     // Dibujar las esferas de luz con su shader propio (transformado por model)
@@ -437,13 +445,13 @@ void C3DViewer::drawInterface()
     // Rendirizar ImGui con OpenGL
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-    if (deltaTime >= 1.0) 
+    if (deltaTime >= 1.0)
     {
         lastTime = currentTime;
     }
 }
 
-void C3DViewer::resize(int new_width, int new_height) 
+void C3DViewer::resize(int new_width, int new_height)
 {
     width = new_width;
     height = new_height;
@@ -452,7 +460,7 @@ void C3DViewer::resize(int new_width, int new_height)
     glViewport(0, 0, width, height);
 }
 
-bool C3DViewer::setupShader() 
+bool C3DViewer::setupShader()
 {
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertexShaderSrc, nullptr);
@@ -481,21 +489,21 @@ bool C3DViewer::setupShader()
     return true;
 }
 
-bool C3DViewer::checkCompileErrors(GLuint shader, const char* type) 
+bool C3DViewer::checkCompileErrors(GLuint shader, const char* type)
 {
     GLint success;
     GLchar infoLog[1024];
-    if (strcmp(type, "PROGRAM") != 0) 
+    if (strcmp(type, "PROGRAM") != 0)
     {
         glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-        if (!success) 
+        if (!success)
         {
             glGetShaderInfoLog(shader, 1024, NULL, infoLog);
             fprintf(stderr, "ERROR::SHADER_COMPILATION_ERROR of type: %s\n%s\n", type, infoLog);
             return false;
         }
     }
-    else 
+    else
     {
         glGetProgramiv(shader, GL_LINK_STATUS, &success);
         if (!success) {
@@ -509,11 +517,11 @@ bool C3DViewer::checkCompileErrors(GLuint shader, const char* type)
 
 void C3DViewer::setupTriangle()
 {
-    float vertices[] = 
+    float vertices[] =
     {
         // x      y      z     r     g     b 
-        -1.0f,  1.0f,  0.0f, 1.0f, 0.0f, 0.0f, 
-         1.0f,  1.0f,  0.0f, 0.0f, 1.0f, 0.0f, 
+        -1.0f,  1.0f,  0.0f, 1.0f, 0.0f, 0.0f,
+         1.0f,  1.0f,  0.0f, 0.0f, 1.0f, 0.0f,
          1.0f, -1.0f,  0.0f, 0.0f, 0.0f, 1.0f
     };
 
@@ -532,15 +540,15 @@ void C3DViewer::setupTriangle()
     glEnableVertexAttribArray(1);
 }
 
-void C3DViewer::keyCallbackStatic(GLFWwindow* window, int key, int scancode, int action, int mods) 
+void C3DViewer::keyCallbackStatic(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
     C3DViewer* self = (C3DViewer*)glfwGetWindowUserPointer(window);
-    if (self) 
+    if (self)
         self->onKey(key, scancode, action, mods);
 }
 
-void C3DViewer::mouseButtonCallbackStatic(GLFWwindow* window, int button, int action, int mods) 
+void C3DViewer::mouseButtonCallbackStatic(GLFWwindow* window, int button, int action, int mods)
 {
     ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
     C3DViewer* self = (C3DViewer*)glfwGetWindowUserPointer(window);
@@ -548,11 +556,11 @@ void C3DViewer::mouseButtonCallbackStatic(GLFWwindow* window, int button, int ac
         self->onMouseButton(button, action, mods);
 }
 
-void C3DViewer::cursorPosCallbackStatic(GLFWwindow* window, double xpos, double ypos) 
+void C3DViewer::cursorPosCallbackStatic(GLFWwindow* window, double xpos, double ypos)
 {
     ImGui_ImplGlfw_CursorPosCallback(window, xpos, ypos);
     C3DViewer* self = (C3DViewer*)glfwGetWindowUserPointer(window);
-    if (self) 
+    if (self)
         self->onCursorPos(xpos, ypos);
 }
 
@@ -612,6 +620,8 @@ void C3DViewer::setupTable() {
     glGenVertexArrays(1, &m_tableVAO);
     glGenBuffers(1, &m_tableVBO);
 
+    m_tableVertexCount = sizeof(tableVertices) / (9 * sizeof(float));
+
     // Esta mesa no tiene coordenadas UV por defecto
     m_tableHasTexCoords = false;
 
@@ -630,8 +640,8 @@ void C3DViewer::setupTable() {
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
     // Atributo Color (2)
-	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)(6 * sizeof(float)));
-	glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)(6 * sizeof(float)));
+    glEnableVertexAttribArray(2);
 
     glBindVertexArray(0);
 }
@@ -812,6 +822,7 @@ void C3DViewer::loadOBJ(const std::string& path) {
 
     std::vector<Vertex> vertices;
     bool hasTexCoords = false;
+    bool hasNormals = false;
     for (const auto& shape : shapes) {
         for (const auto& index : shape.mesh.indices) {
             Vertex vertex{};
@@ -821,6 +832,7 @@ void C3DViewer::loadOBJ(const std::string& path) {
                 attrib.vertices[3 * index.vertex_index + 2]
             };
             if (index.normal_index >= 0) {
+                hasNormals = true;
                 vertex.Normal = {
                     attrib.normals[3 * index.normal_index + 0],
                     attrib.normals[3 * index.normal_index + 1],
@@ -841,12 +853,47 @@ void C3DViewer::loadOBJ(const std::string& path) {
     }
     m_tableVertexCount = vertices.size();
     m_tableHasTexCoords = hasTexCoords;
+
+    // Calcular los límites en Y
+    float minY = std::numeric_limits<float>::max();
+    float maxY = -std::numeric_limits<float>::max();
+    for (const auto& v : vertices) {
+        if (v.Position.y < minY) minY = v.Position.y;
+        if (v.Position.y > maxY) maxY = v.Position.y;
+    }
+    m_tableMinY = minY;
+    m_tableMaxY = maxY;
+    std::cout << "Altura de la mesa: minY = " << minY << ", maxY = " << maxY << ", altura total = " << (maxY - minY) << std::endl;
+
+    // If OBJ didn't provide normals, compute smooth vertex normals from the triangle list
+    if (!hasNormals && m_tableVertexCount >= 3) {
+        for (size_t i = 0; i + 2 < vertices.size(); i += 3) {
+            glm::vec3 v0 = vertices[i + 0].Position;
+            glm::vec3 v1 = vertices[i + 1].Position;
+            glm::vec3 v2 = vertices[i + 2].Position;
+            glm::vec3 faceNormal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+            if (glm::length(faceNormal) > 0.0f) {
+                vertices[i + 0].Normal += faceNormal;
+                vertices[i + 1].Normal += faceNormal;
+                vertices[i + 2].Normal += faceNormal;
+            }
+        }
+        // normalize accumulated normals
+        for (size_t i = 0; i < vertices.size(); ++i) {
+            if (glm::length(vertices[i].Normal) > 0.0001f)
+                vertices[i].Normal = glm::normalize(vertices[i].Normal);
+            else
+                vertices[i].Normal = glm::vec3(0.0f, 1.0f, 0.0f); // fallback
+        }
+        std::cout << "Computed vertex normals for OBJ (was missing in file)." << std::endl;
+    }
     if (m_tableHasTexCoords) {
         std::cout << "OBJ contiene UVs. Primeros TexCoords: ";
         if (!vertices.empty()) {
             std::cout << vertices[0].TexCoords.x << "," << vertices[0].TexCoords.y << std::endl;
         }
-    } else {
+    }
+    else {
         std::cout << "OBJ no contiene UVs." << std::endl;
     }
     std::cout << "Vertices totales procesados para dibujo: " << m_tableVertexCount << std::endl;
@@ -909,25 +956,76 @@ unsigned int C3DViewer::loadCubemap(std::vector<std::string> faces) {
     glGenTextures(1, &textureID);
     glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
     int width, height, nrChannels;
+    int faceWidth = -1, faceHeight = -1;
+    int targetFaceSize = -1; // we will enforce square faces for cubemap
+    bool allFacesLoaded = true;
     stbi_set_flip_vertically_on_load(false);
     if (faces.size() != 6) {
         std::cerr << "Warning: cubemap expects 6 faces, got " << faces.size() << std::endl;
     }
     for (unsigned int i = 0; i < faces.size(); i++) {
-        unsigned char *data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, 0);
+        unsigned char* data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, STBI_rgb_alpha);
         if (data) {
-            GLenum format = GL_RGB;
-            if (nrChannels == 1) format = GL_RED;
-            else if (nrChannels == 3) format = GL_RGB;
-            else if (nrChannels == 4) format = GL_RGBA;
+            //std::cout << "  -> face size: " << width << "x" << height << " channels(requested=4)\n";
+            // Determine target square size (first successful face sets it)
+            int curMin = std::min(width, height);
+            if (targetFaceSize < 0) targetFaceSize = curMin;
+
+            // If current face is not the target size or not square, crop center to targetFaceSize
+            unsigned char* uploadData = data;
+            bool allocatedTemp = false;
+            if (width != targetFaceSize || height != targetFaceSize) {
+                unsigned char* temp = resizeRGBA(data, width, height, targetFaceSize, targetFaceSize);
+                if (temp) {
+                    uploadData = temp;
+                    allocatedTemp = true;
+                    //std::cout << "  -> resized face to " << targetFaceSize << "x" << targetFaceSize << "\n";
+                }
+                else {
+                    //std::cout << "  -> resize failed, will attempt center-crop fallback\n";
+                    int xoff = (width - targetFaceSize) / 2;
+                    int yoff = (height - targetFaceSize) / 2;
+                    size_t outRowBytes = (size_t)targetFaceSize * 4;
+                    unsigned char* tmp2 = new unsigned char[targetFaceSize * targetFaceSize * 4];
+                    for (int r = 0; r < targetFaceSize; ++r) {
+                        unsigned char* src = data + ((r + yoff) * width + xoff) * 4;
+                        unsigned char* dst = tmp2 + r * outRowBytes;
+                        memcpy(dst, src, outRowBytes);
+                    }
+                    uploadData = tmp2;
+                    allocatedTemp = true;
+                    //std::cout << "  -> cropped face to " << targetFaceSize << "x" << targetFaceSize << " (fallback)\n";
+                }
+            }
+
+            // Update faceWidth/faceHeight expectations
+            if (faceWidth < 0) {
+                faceWidth = targetFaceSize;
+                faceHeight = targetFaceSize;
+            }
+            else if (targetFaceSize != faceWidth || targetFaceSize != faceHeight) {
+                /*std::cerr << "Cubemap face size mismatch at " << faces[i]
+                    << " (cropped to " << targetFaceSize << "x" << targetFaceSize << ") expected "
+                    << faceWidth << "x" << faceHeight << std::endl;*/
+                allFacesLoaded = false;
+            }
+
             glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
             // Se cargan en el orden: +X, -X, +Y, -Y, +Z, -Z
             glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
-                         0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+                0, GL_RGBA, targetFaceSize, targetFaceSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, uploadData);
+            GLenum gle = glGetError();
+            if (gle != GL_NO_ERROR) {
+                std::cerr << "GL error after glTexImage2D for face " << i << ": 0x" << std::hex << gle << std::dec << std::endl;
+            }
+
+            if (allocatedTemp) delete[] uploadData;
             stbi_image_free(data);
-            std::cout << "Cubemap cara " << i << " cargada: " << faces[i] << std::endl;
-        } else {
-            std::cout << "Cubemap tex failed to load at path: " << faces[i] << std::endl;
+            //std::cout << "Cubemap cara " << i << " cargada: " << faces[i] << std::endl;
+        }
+        else {
+            //std::cout << "Cubemap tex failed to load at path: " << faces[i] << std::endl;
+            allFacesLoaded = false;
         }
     }
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -935,6 +1033,10 @@ unsigned int C3DViewer::loadCubemap(std::vector<std::string> faces) {
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    if (!allFacesLoaded) {
+        std::cerr << "Warning: cubemap is incomplete or inconsistent; rendering may appear black." << std::endl;
+    }
 
     return textureID;
 }
