@@ -145,65 +145,81 @@ protected:
         uniform vec3 lightDiffuse[3];
         uniform vec3 lightSpecular[3];
         uniform bool lightEnabled[3];
-        uniform int lightModel[3]; 
+
+        uniform bool isReflective;
 
         void main() {
             vec3 norm = normalize(Normal);
             vec3 viewDir = normalize(viewPos - FragPos);
-            vec3 result = vec3(0.0);
 
-            // Priorizamos la textura sobre el color por vértice
+            // 1. COLOR BASE
             vec4 texColor = texture(texture_diffuse, TexCoords);
-            vec3 baseColor = useTexture ? texColor.rgb : Color;
+            vec3 baseColor;
 
+            if (isReflective) {
+                // Plateado oscuro
+                baseColor = vec3(0.12, 0.12, 0.12);
+            } else {
+                baseColor = useTexture ? texColor.rgb : (length(Color) > 0.1 ? Color : vec3(0.6));
+            }
+
+            // 2. AMBIENTE (contribución del skybox)
+            vec3 skyColor = texture(skybox, norm).rgb;
+            vec3 ambient = skyColor * 0.3 * baseColor;
+
+            vec3 lightingSum = vec3(0.0);
+
+            // 3. LUCES PUNTUALES
             for (int i = 0; i < 3; i++) {
                 if (!lightEnabled[i]) continue;
 
                 vec3 lightDir = normalize(lightPos[i] - FragPos);
                 float distance = length(lightPos[i] - FragPos);
-                
-                // Atenuación ajustada para distancias cortas (mesa mini-man)
+
                 float attenuation = 1.0;
                 if (attenuationEnabled) {
-                    float constant = 1.0;
-                    // valores reducidos para que la luz alcance distancias mayores dentro de la sala
-                    float linear = 0.002;
-                    float quadratic = 0.0005;
-                    attenuation = 1.0 / (constant + linear * distance + quadratic * distance * distance);
+                    attenuation = 1.0 / (1.0 + 0.01 * distance + 0.0002 * distance * distance);
                 }
 
-                    // Ambiental: usar componente ambiental de la luz y del material
-                    vec3 ambient = lightAmbient[i] * materialAmbient * baseColor;
-
-                    // Añadimos una ambient global para simular luz ambiente (día) y contribución del skybox
-                    vec3 envColor = vec3(0.0);
-                    // Sample environment using normal direction for soft ambient contribution
-                    envColor = texture(skybox, normalize(Normal)).rgb;
-                    vec3 globalAmbient = 0.35 * baseColor + 0.45 * envColor * baseColor;
-                    ambient += globalAmbient;
-
-                // Difuso multiplicado por la propiedad difusa del material
+                // Difuso (siempre con color base)
                 float diff = max(dot(norm, lightDir), 0.0);
-                vec3 diffuse = lightDiffuse[i] * diff * (materialDiffuse * baseColor) * 1.25;
+                vec3 diffuse = lightDiffuse[i] * diff * materialDiffuse * baseColor;
 
-                // Especular (Phong / Blinn-Phong), usando propiedad especular y shininess
-                vec3 specular = vec3(0.0);
-                if (lightModel[i] != 2) {
-                    if (lightModel[i] == 0) { // Phong
-                        vec3 reflectDir = reflect(-lightDir, norm);
-                        float spec = pow(max(dot(viewDir, reflectDir), 0.0), materialShininess);
-                        specular = lightSpecular[i] * spec * materialSpecular;
-                    } else { // Blinn-Phong
-                        vec3 halfwayDir = normalize(lightDir + viewDir);
-                        float spec = pow(max(dot(norm, halfwayDir), 0.0), materialShininess);
-                        specular = lightSpecular[i] * spec * materialSpecular;
-                    }
+                // Especular: más intensa para objetos reflectivos y con color de luz
+                vec3 halfwayDir = normalize(lightDir + viewDir);
+                float spec = pow(max(dot(norm, halfwayDir), 0.0), materialShininess);
+                vec3 specular;
+                if (isReflective) {
+                    // Especular potente y del color de la luz
+                    specular = lightSpecular[i] * spec * materialSpecular * 10.0; // factor extra
+                } else {
+                    specular = lightSpecular[i] * spec * materialSpecular * baseColor;
                 }
 
-                result += (ambient + diffuse + specular) * attenuation;
+                lightingSum += (diffuse + specular) * attenuation;
             }
-            // Final lighting output
-            FragColor = vec4(clamp(result, 0.0, 1.0), 1.0);
+
+            // 4. REFLEXIÓN (para objetos reflectivos)
+            vec3 finalColor = ambient + lightingSum;
+
+            if (isReflective) {
+                vec3 reflectDir = reflect(-viewDir, norm);
+                vec3 reflectionColor = texture(skybox, reflectDir).rgb;
+                reflectionColor *= baseColor; // el metal oscuro tiñe el reflejo
+
+                // Fresnel para metales
+                float cosTheta = max(dot(norm, viewDir), 0.0);
+                float F0 = 0.92;
+                float fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+
+                finalColor = mix(finalColor, reflectionColor, fresnel);
+            }
+
+            // Tonemapping suave
+            finalColor = finalColor / (finalColor + vec3(0.2));
+            finalColor = pow(finalColor, vec3(1.0 / 1.2));
+
+            FragColor = vec4(clamp(finalColor, 0.0, 1.0), 1.0);
         }
     )glsl";
 
@@ -232,7 +248,7 @@ protected:
         }
     )glsl";
 
-    // Shaders para dibujar las esferas de luz (simple color, transformaciones)
+    // Shaders para dibujar las esferas de luz
     const char* lightVertexSrc = R"glsl(
         #version 330 core
         layout(location = 0) in vec3 aPos;
@@ -255,7 +271,7 @@ protected:
 
     glm::vec3 m_lightPos[3];
     float m_lightSpeedFactor;
-    float m_lightRadii[3] = { 35.0f, 25.0f, 40.0f };
+    float m_lightRadii[3] = { 45.0f, 25.0f, 40.0f };
     float m_lightHeights[3] = { 45.0f, 42.0f, 48.0f };
     float m_lightAngularSpeed[3] = { 0.8f, 1.1f, 0.6f };
 

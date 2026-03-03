@@ -15,7 +15,6 @@
 
 static UIState globalUIState;
 
-// Simple bilinear resize for RGBA image data. Returns newly allocated buffer (caller must delete[]).
 static unsigned char* resizeRGBA(const unsigned char* src, int srcW, int srcH, int dstW, int dstH) {
     if (!src || srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0) return nullptr;
     unsigned char* dst = new unsigned char[dstW * dstH * 4];
@@ -135,9 +134,6 @@ bool C3DViewer::setup()
 
     // Enable seamless cubemap sampling to avoid seams
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
-
-    // Setup VAO y VBO para el triángulo
-    //setupTriangle();
 
     // Mesa y Skybox
     // Si no se cargó un OBJ (m_tableVertexCount == 0) usamos el cubo de prueba;
@@ -311,13 +307,12 @@ void C3DViewer::render() {
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // --- Configuración de cámara (posicion/dir controladas por la UI y mouse) ---
+    // --- Configuración de cámara ---
     glm::vec3 camPos = cameraPos;
     glm::mat4 view = glm::lookAt(camPos, camPos + cameraFront, cameraUp);
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)width / (float)height, 0.1f, 500.0f);
 
-    // --- Dibujo de skybox ---
-    // El skybox no usa iluminación de escena; se dibuja primero para evitar conflictos de profundidad.
+    // --- Dibujo de skybox (Se mantiene igual) ---
     glUseProgram(m_simpleShader);
     glm::mat4 skyView = glm::mat4(glm::mat3(view));
     glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "view"), 1, GL_FALSE, glm::value_ptr(skyView));
@@ -327,55 +322,27 @@ void C3DViewer::render() {
     glBindVertexArray(m_skyboxVAO);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_CUBE_MAP, m_skyboxTexture);
-    // Debug: verify cubemap is bound and its level0 size
-    GLint boundCube = 0;
-    glGetIntegerv(GL_TEXTURE_BINDING_CUBE_MAP, &boundCube);
-    if (boundCube == 0) {
-        //std::cout << "Debug: no cubemap bound to unit 0 (binding==0)\n";
-    }
-    else {
-        GLint w = 0, h = 0;
-        glGetTexLevelParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0, GL_TEXTURE_WIDTH, &w);
-        glGetTexLevelParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0, GL_TEXTURE_HEIGHT, &h);
-        //std::cout << "Debug: cubemap bound (id=" << boundCube << ") level0 size: " << w << "x" << h << std::endl;
-    }
     glDrawArrays(GL_TRIANGLES, 0, 36);
     glDepthMask(GL_TRUE);
     glDepthFunc(GL_LESS);
 
-    // --- Dibujo de objetos iluminados ---
+    // --- Preparación de Objetos Iluminados ---
     glUseProgram(m_shaderProgram);
-    // Bind environment cubemap to texture unit 1 so shader can sample it for ambient
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, m_skyboxTexture);
-    // restore active to unit 0 for diffuse texture below
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_skyboxTexture); // Unidad 1 para el Skybox (Ambient/Reflection)
+    glUniform1i(glGetUniformLocation(m_shaderProgram, "skybox"), 1);
     glActiveTexture(GL_TEXTURE0);
 
-    glm::mat4 model = glm::mat4(1.0f);
-    /*model = glm::scale(model, glm::vec3(0.1f));*/
-    // Matrices
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
-    glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-    // Posición de la cámara
     glUniform3fv(glGetUniformLocation(m_shaderProgram, "viewPos"), 1, &camPos[0]);
-    // Atenuación
     glUniform1i(glGetUniformLocation(m_shaderProgram, "attenuationEnabled"), globalUIState.attenuation);
 
-    // aumentar ambient para iluminación tipo día
-    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.28f, 0.12f, 0.06f);
-    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 1.0f, 1.0f, 1.0f);
-    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 1.0f, 1.0f, 1.0f);
-    glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 32.0f);
-
-    // Luces: posiciones, colores, etc.
+    // Enviar datos de las 3 luces
     for (int i = 0; i < 3; i++) {
         char name[64];
         snprintf(name, sizeof(name), "lightPos[%d]", i);
         glUniform3fv(glGetUniformLocation(m_shaderProgram, name), 1, &m_lightPos[i][0]);
-    }
-    for (int i = 0; i < 3; i++) {
-        char name[64];
         snprintf(name, sizeof(name), "lightAmbient[%d]", i);
         glUniform3fv(glGetUniformLocation(m_shaderProgram, name), 1, globalUIState.lightAmbient[i]);
         snprintf(name, sizeof(name), "lightDiffuse[%d]", i);
@@ -384,83 +351,66 @@ void C3DViewer::render() {
         glUniform3fv(glGetUniformLocation(m_shaderProgram, name), 1, globalUIState.lightSpecular[i]);
         snprintf(name, sizeof(name), "lightEnabled[%d]", i);
         glUniform1i(glGetUniformLocation(m_shaderProgram, name), globalUIState.lightEnabled[i]);
-        snprintf(name, sizeof(name), "lightModel[%d]", i);
-        glUniform1i(glGetUniformLocation(m_shaderProgram, name), globalUIState.shadingModels[i]);
     }
 
-    // --- Dibujo de la Mesa OBJ ---
-    glUseProgram(m_shaderProgram);
+    // --- DIBUJO DE LA MESA ---
+    // Desactivamos reflejos para la madera
+    glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
+    // Material de madera: alto difuso y ambiental para que se vea clara de día
+    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.35f, 0.35f, 0.35f);
+    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.8f, 0.8f, 0.8f);
+    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.2f, 0.2f, 0.2f);
+    glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 16.0f);
 
     float scale = 0.5f;
     float displacementY = -m_tableMinY * scale;
-
-    glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
-    glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-    glm::mat4 tableModel = glm::mat4(1.0f);
-    tableModel = glm::translate(tableModel, glm::vec3(0.0f, displacementY, 0.0f));
+    glm::mat4 tableModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, displacementY, 0.0f));
     tableModel = glm::scale(tableModel, glm::vec3(scale));
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(tableModel));
-    // Textura
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, m_tableTexture);
 
-    glUniform1i(glGetUniformLocation(m_shaderProgram, "texture_diffuse"), 0);
-    // Solo usar la textura si existe y el mesh tiene coordenadas UV
-    int useTex = (m_tableTexture != 0 && m_tableHasTexCoords) ? 1 : 0;
-    glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), useTex);
-    // Dibujo
+    glBindTexture(GL_TEXTURE_2D, m_tableTexture);
+    glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (m_tableTexture != 0 && m_tableHasTexCoords) ? 1 : 0);
     glBindVertexArray(m_tableVAO);
     glDrawArrays(GL_TRIANGLES, 0, m_tableVertexCount);
 
-    // --- Dibujo de la Tetera OBJ ---
+    // --- DIBUJO DE LA TETERA ---
     if (m_teapotVertexCount > 0 && m_teapotVAO != 0) {
-        // Calcular escala relativa para que la tetera quepa sobre la mesa
-        float tableScale = 0.5f; // mismo scale usado para la mesa arriba
-        float tableHeight = tableScale * (m_tableMaxY - m_tableMinY);
+        // ACTIVAR REFLEJO FRESNEL
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 1);
+
+        // Material Metálico
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.02f, 0.02f, 0.02f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.1f, 0.1f, 0.1f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 1.0f, 1.0f, 1.0f);
+        glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 256.0f);
+
+        // Cálculos de escala y posición
+        float tableHeight = scale * (m_tableMaxY - m_tableMinY);
         float teapotHeightModel = (m_teapotMaxY - m_teapotMinY);
-        float teapotScale = 1.0f;
-        if (teapotHeightModel > 0.0001f)
-            teapotScale = (tableHeight * 0.30f) / teapotHeightModel; // ocupar ~30% de la altura de la mesa
+        float teapotScale = (teapotHeightModel > 0.0001f) ? (tableHeight * 0.30f) / teapotHeightModel : 1.0f;
+        float teapotDisplacementY = -m_teapotMinY * teapotScale + tableHeight + 0.02f;
 
-        // Posicionar la tetera para que su mínima Y toque la superficie superior de la mesa
-        float tableTopY = tableHeight; // ya desplazada para que minY de la mesa quede en 0
-        float teapotDisplacementY = -m_teapotMinY * teapotScale + tableTopY + 0.02f; // pequeño offset sobre la superficie
-
-        glm::mat4 teapotModel = glm::mat4(1.0f);
-        teapotModel = glm::translate(teapotModel, glm::vec3(0.0f, teapotDisplacementY, 0.0f));
+        glm::mat4 teapotModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, teapotDisplacementY, 0.0f));
         teapotModel = glm::scale(teapotModel, glm::vec3(teapotScale));
-
         glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(teapotModel));
 
-        // Material para la tetera
-        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.12f, 0.12f, 0.12f);
-        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.55f, 0.55f, 0.55f);
-        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.9f, 0.9f, 0.9f);
-        glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 96.0f);
-
-
-        // Bind de textura si existiera
-        glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, m_teapotTexture);
-        int useTexTeapot = (m_teapotTexture != 0 && m_teapotHasTexCoords) ? 1 : 0;
-        glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), useTexTeapot);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (m_teapotTexture != 0 && m_teapotHasTexCoords) ? 1 : 0);
 
         glBindVertexArray(m_teapotVAO);
         glDrawArrays(GL_TRIANGLES, 0, m_teapotVertexCount);
     }
 
     // --- Dibujo de esferas de luz ---
-    // Dibujar las esferas de luz con su shader propio (transformado por model)
     glUseProgram(m_lightShader);
     glUniformMatrix4fv(glGetUniformLocation(m_lightShader, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(m_lightShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
     glBindVertexArray(m_sphereVAO);
     for (int i = 0; i < 3; i++) {
         if (!globalUIState.lightEnabled[i]) continue;
-        glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, m_lightPos[i]);
-        model = glm::scale(model, glm::vec3(0.8f));
-        glUniformMatrix4fv(glGetUniformLocation(m_lightShader, "model"), 1, GL_FALSE, glm::value_ptr(model));
+        glm::mat4 lModel = glm::translate(glm::mat4(1.0f), m_lightPos[i]);
+        lModel = glm::scale(lModel, glm::vec3(1.5f));
+        glUniformMatrix4fv(glGetUniformLocation(m_lightShader, "model"), 1, GL_FALSE, glm::value_ptr(lModel));
         glUniform3fv(glGetUniformLocation(m_lightShader, "color"), 1, globalUIState.lightColors[i]);
         glDrawElements(GL_TRIANGLES, m_sphereIndexCount, GL_UNSIGNED_INT, 0);
     }
@@ -477,10 +427,8 @@ void C3DViewer::drawInterface()
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    // Llamada al nuevo dise�o de interfaz
     DrawMainPanel(globalUIState);
 
-    // Aqu� colocas el c�digo ImGui para el slider
     ImGui::SetNextWindowSize(ImVec2(400, 1000), ImGuiCond_Once);
     //ImGui::Begin("Control Panel");
     static int anyDummyValue = 50;
@@ -670,9 +618,7 @@ void C3DViewer::setupTable() {
 
     m_tableVertexCount = sizeof(tableVertices) / (9 * sizeof(float));
 
-    // Esta mesa no tiene coordenadas UV por defecto
     m_tableHasTexCoords = false;
-    // Valores por defecto de alturas en el cubo de la mesa (coinciden con los vértices usados)
     m_tableMinY = -0.5f;
     m_tableMaxY = 0.5f;
 
