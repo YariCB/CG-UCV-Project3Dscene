@@ -145,6 +145,7 @@ protected:
         uniform vec3 lightDiffuse[3];
         uniform vec3 lightSpecular[3];
         uniform bool lightEnabled[3];
+        uniform int lightModel[3]; // 0: Phong, 1: Blinn-Phong, 2: Flat
 
         uniform bool isReflective;
 
@@ -152,7 +153,7 @@ protected:
             vec3 norm = normalize(Normal);
             vec3 viewDir = normalize(viewPos - FragPos);
 
-            // 1. COLOR BASE
+            // COLOR BASE
             vec4 texColor = texture(texture_diffuse, TexCoords);
             vec3 baseColor;
 
@@ -163,13 +164,13 @@ protected:
                 baseColor = useTexture ? texColor.rgb : (length(Color) > 0.1 ? Color : vec3(0.6));
             }
 
-            // 2. AMBIENTE (contribución del skybox)
+            // AMBIENTE (contribución del skybox)
             vec3 skyColor = texture(skybox, norm).rgb;
             vec3 ambient = skyColor * 0.3 * baseColor;
 
             vec3 lightingSum = vec3(0.0);
 
-            // 3. LUCES PUNTUALES
+            // LUCES PUNTUALES
             for (int i = 0; i < 3; i++) {
                 if (!lightEnabled[i]) continue;
 
@@ -181,38 +182,48 @@ protected:
                     attenuation = 1.0 / (1.0 + 0.01 * distance + 0.0002 * distance * distance);
                 }
 
-                // Difuso
+                // Componente difusa (común a todos los modelos)
                 float diff = max(dot(norm, lightDir), 0.0);
                 vec3 diffuse;
                 if (isReflective) {
-                    // Para la tetera, el color de la luz se suma directamente con bastante intensidad
-                    // y se mezcla con el color base oscuro.
-                    diffuse = lightDiffuse[i] * diff * 2.0; // factor alto para que se note el color
+                    // Suma para la tetera
+                    diffuse = lightDiffuse[i] * diff * 2.0;
                 } else {
                     diffuse = lightDiffuse[i] * diff * materialDiffuse * baseColor;
                 }
 
-                // Especular (Blinn-Phong)
-                vec3 halfwayDir = normalize(lightDir + viewDir);
-                float spec = pow(max(dot(norm, halfwayDir), 0.0), materialShininess);
-                vec3 specular;
-                if (isReflective) {
-                    // Especular muy brillante, con el color de la luz
-                    specular = lightSpecular[i] * spec * materialSpecular * 12.0;
-                } else {
-                    specular = lightSpecular[i] * spec * materialSpecular * baseColor;
+                // Componente especular (según modelo)
+                vec3 specular = vec3(0.0);
+                if (lightModel[i] != 2) { // No Flat
+                    if (lightModel[i] == 0) { // Phong
+                        vec3 reflectDir = reflect(-lightDir, norm);
+                        float spec = pow(max(dot(viewDir, reflectDir), 0.0), materialShininess);
+                        if (isReflective) {
+                            specular = lightSpecular[i] * spec * materialSpecular * 12.0;
+                        } else {
+                            specular = lightSpecular[i] * spec * materialSpecular * baseColor;
+                        }
+                    } else { // Blinn-Phong
+                        vec3 halfwayDir = normalize(lightDir + viewDir);
+                        float spec = pow(max(dot(norm, halfwayDir), 0.0), materialShininess);
+                        if (isReflective) {
+                            specular = lightSpecular[i] * spec * materialSpecular * 12.0;
+                        } else {
+                            specular = lightSpecular[i] * spec * materialSpecular * baseColor;
+                        }
+                    }
                 }
 
                 lightingSum += (diffuse + specular) * attenuation;
             }
 
-            // 4. REFLEXIÓN (para objetos reflectivos)
+            // REFLEXIÓN (para objetos reflectivos)
             vec3 finalColor = ambient + lightingSum;
 
             if (isReflective) {
                 vec3 reflectDir = reflect(-viewDir, norm);
                 vec3 reflectionColor = texture(skybox, reflectDir).rgb;
-                reflectionColor *= baseColor; // el metal oscuro tiñe el reflejo
+                reflectionColor *= baseColor;
 
                 // Fresnel para metales
                 float cosTheta = max(dot(norm, viewDir), 0.0);

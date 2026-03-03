@@ -312,7 +312,7 @@ void C3DViewer::render() {
     glm::mat4 view = glm::lookAt(camPos, camPos + cameraFront, cameraUp);
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)width / (float)height, 0.1f, 500.0f);
 
-    // --- Dibujo de skybox (Se mantiene igual) ---
+    // --- Dibujo de skybox ---
     glUseProgram(m_simpleShader);
     glm::mat4 skyView = glm::mat4(glm::mat3(view));
     glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "view"), 1, GL_FALSE, glm::value_ptr(skyView));
@@ -338,7 +338,7 @@ void C3DViewer::render() {
     glUniform3fv(glGetUniformLocation(m_shaderProgram, "viewPos"), 1, &camPos[0]);
     glUniform1i(glGetUniformLocation(m_shaderProgram, "attenuationEnabled"), globalUIState.attenuation);
 
-    // Enviar datos de las 3 luces
+    // Datos de Luces
     for (int i = 0; i < 3; i++) {
         char name[64];
         snprintf(name, sizeof(name), "lightPos[%d]", i);
@@ -351,12 +351,14 @@ void C3DViewer::render() {
         glUniform3fv(glGetUniformLocation(m_shaderProgram, name), 1, globalUIState.lightSpecular[i]);
         snprintf(name, sizeof(name), "lightEnabled[%d]", i);
         glUniform1i(glGetUniformLocation(m_shaderProgram, name), globalUIState.lightEnabled[i]);
+        // Modelo de Iluminación
+        snprintf(name, sizeof(name), "lightModel[%d]", i);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, name), globalUIState.shadingModels[i]);
     }
 
     // --- DIBUJO DE LA MESA ---
-    // Desactivamos reflejos para la madera
     glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
-    // Material de madera: alto difuso y ambiental para que se vea clara de día
+    // Material de madera
     glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.35f, 0.35f, 0.35f);
     glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.8f, 0.8f, 0.8f);
     glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.2f, 0.2f, 0.2f);
@@ -375,15 +377,13 @@ void C3DViewer::render() {
 
     // --- DIBUJO DE LA TETERA ---
     if (m_teapotVertexCount > 0 && m_teapotVAO != 0) {
-        // ACTIVAR REFLEJO FRESNEL
+        // Reflejo de Fresnel
         glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 1);
-
         // Material Metálico
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.02f, 0.02f, 0.02f);
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.1f, 0.1f, 0.1f);
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 1.0f, 1.0f, 1.0f);
         glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 256.0f);
-
         // Cálculos de escala y posición
         float tableHeight = scale * (m_tableMaxY - m_tableMinY);
         float teapotHeightModel = (m_teapotMaxY - m_teapotMinY);
