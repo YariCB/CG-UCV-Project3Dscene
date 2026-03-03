@@ -85,7 +85,7 @@ bool C3DViewer::setup()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    m_window = glfwCreateWindow(width, height, "C3DViewer Window: Hello Triangle", NULL, NULL);
+    m_window = glfwCreateWindow(width, height, "Computación Gráfica - Proyecto 3 - Yarima Contreras", NULL, NULL);
     if (!m_window)
     {
         glfwTerminate();
@@ -101,6 +101,11 @@ bool C3DViewer::setup()
         glfwTerminate();
         return false;
     }
+
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+    glFrontFace(GL_CCW);
+    glEnable(GL_DEPTH_TEST);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -325,6 +330,8 @@ void C3DViewer::render() {
     glDrawArrays(GL_TRIANGLES, 0, 36);
     glDepthMask(GL_TRUE);
     glDepthFunc(GL_LESS);
+
+    glEnable(GL_CULL_FACE);
 
     // --- Preparación de Objetos Iluminados ---
     glUseProgram(m_shaderProgram);
