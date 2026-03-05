@@ -69,6 +69,10 @@ protected:
     bool m_tableHasTexCoords = false;
     float m_tableMinY;
     float m_tableMaxY;
+    float m_tableMinX;
+    float m_tableMaxX;
+    float m_tableMinZ;
+    float m_tableMaxZ;
 
     // Datos para la tetera
     GLuint m_teapotVAO = 0;
@@ -77,6 +81,38 @@ protected:
     float m_teapotMinY, m_teapotMaxY;
     GLuint m_teapotTexture = 0;
     bool m_teapotHasTexCoords = false;
+
+    // Datos para el tazón de frutas
+    GLuint m_bowlVAO = 0;
+    GLuint m_bowlVBO = 0;
+    size_t m_bowlVertexCount = 0;
+    float m_bowlMinY, m_bowlMaxY;
+    GLuint m_bowlTexture = 0;
+    bool m_bowlHasTexCoords = false;
+
+    // Datos para la taza
+    GLuint m_cupVAO = 0;
+    GLuint m_cupVBO = 0;
+    size_t m_cupVertexCount = 0;
+    float m_cupMinY, m_cupMaxY;
+    GLuint m_cupTexture = 0;
+    bool m_cupHasTexCoords = false;
+
+    // Datos para el café
+    GLuint m_coffeeVAO = 0;
+    GLuint m_coffeeVBO = 0;
+    size_t m_coffeeVertexCount = 0;
+    float m_coffeeMinY, m_coffeeMaxY;
+    GLuint m_coffeeTexture = 0;
+    bool m_coffeeHasTexCoords = false;
+
+    // Datos para las cartas
+    GLuint m_cardsVAO = 0;
+    GLuint m_cardsVBO = 0;
+    size_t m_cardsVertexCount = 0;
+    float m_cardsMinY, m_cardsMaxY;
+    GLuint m_cardsTexture = 0;
+    bool m_cardsHasTexCoords = false;
 
     GLuint m_shaderProgram = 0;
     double lastTime = 0.0;

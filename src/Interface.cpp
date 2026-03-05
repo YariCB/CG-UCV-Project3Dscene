@@ -1,7 +1,10 @@
 #include "Interface.h"
 
 void DrawMainPanel(UIState& state) {
-    ImGui::Begin("Control Panel - Project 3");
+    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(400, 1000), ImGuiCond_FirstUseEver);
+    
+    ImGui::Begin("Control Panel - Project 3", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
 
     // 1. Iluminación y Animación
     if (ImGui::CollapsingHeader("Lighting and Animation", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -37,8 +40,8 @@ void DrawMainPanel(UIState& state) {
 
     // 4. Mapeos y Selección de Objetos (Group Box)
     if (ImGui::CollapsingHeader("Objects and Textures")) {
-        const char* items[] = { "Wooden table", "Reflective object", "Box", "Teapot" };
-        ImGui::ListBox("Select Object", &state.selectedObj, items, 4);
+        const char* items[] = { "Cards", "Cards Tower", "Coffee cups", "Cup", "Fruit bowl", "Teapot", "Wooden table"};
+        ImGui::ListBox("Select Object", &state.selectedObj, items, 7);
 
         ImGui::Text("Surface Mapping:");
         ImGui::Combo("S-Mapping", &state.sMapping, "Spherical\0Cylindrical\0");

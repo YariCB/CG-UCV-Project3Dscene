@@ -129,12 +129,90 @@ bool C3DViewer::setup()
 
     // Mesa OBJ
     loadOBJTo("OBJs/table/table4.obj", m_tableVAO, m_tableVBO, m_tableVertexCount, m_tableHasTexCoords, m_tableMinY, m_tableMaxY);
+    // Calcular extensión X/Z de la mesa para colocar objetos en los extremos
+    {
+        tinyobj::attrib_t attrib; std::vector<tinyobj::shape_t> shapes; std::vector<tinyobj::material_t> materials; std::string warn, err;
+        std::string path = "OBJs/table/table4.obj";
+        size_t pos = path.find_last_of("/\\"); std::string baseDir = (pos!=std::string::npos)? path.substr(0,pos+1) : std::string("");
+        if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str(), baseDir.c_str())) {
+            float minX = std::numeric_limits<float>::max();
+            float maxX = -std::numeric_limits<float>::max();
+            float minZ = std::numeric_limits<float>::max();
+            float maxZ = -std::numeric_limits<float>::max();
+            for (size_t i = 0; i + 2 < attrib.vertices.size(); i += 3) {
+                float x = attrib.vertices[i + 0];
+                float y = attrib.vertices[i + 1];
+                float z = attrib.vertices[i + 2];
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (z < minZ) minZ = z;
+                if (z > maxZ) maxZ = z;
+            }
+            m_tableMinX = minX;
+            m_tableMaxX = maxX;
+            m_tableMinZ = minZ;
+            m_tableMaxZ = maxZ;
+            std::cout << "Table bounds X:["<<minX<<","<<maxX<<"] Z:["<<minZ<<","<<maxZ<<"]\n";
+        }
+        else {
+            m_tableMinX = -70.0f; m_tableMaxX = 70.0f; m_tableMinZ = -45.0f; m_tableMaxZ = 45.0f; // fallback
+        }
+    }
     m_tableTexture = loadTexture("OBJs/table/tipical.jpg");
     if (m_tableTexture == 0) std::cout << "Warning: table texture not loaded (m_tableTexture==0)" << std::endl;
 
-    // Tetera OBJ (cargar en su propia malla para no sobrescribir la mesa)
+    // Carga de objetos sobre la mesa
     loadOBJTo("OBJs/teapot/teapot.obj", m_teapotVAO, m_teapotVBO, m_teapotVertexCount, m_teapotHasTexCoords, m_teapotMinY, m_teapotMaxY);
+    loadOBJTo("OBJs/cards/cards.obj", m_cardsVAO, m_cardsVBO, m_cardsVertexCount, m_cardsHasTexCoords, m_cardsMinY, m_cardsMaxY);
+    loadOBJTo("OBJs/coffee/coffee.obj", m_coffeeVAO, m_coffeeVBO, m_coffeeVertexCount, m_coffeeHasTexCoords, m_coffeeMinY, m_coffeeMaxY);
+    loadOBJTo("OBJs/cup/cup.obj", m_cupVAO, m_cupVBO, m_cupVertexCount, m_cupHasTexCoords, m_cupMinY, m_cupMaxY);
+    loadOBJTo("OBJs/fruits/bowlWithFruits.obj", m_bowlVAO, m_bowlVBO, m_bowlVertexCount, m_bowlHasTexCoords, m_bowlMinY, m_bowlMaxY);
 
+    // Intentar cargar texturas referenciadas en los MTL (si las hay)
+    { // cards
+        tinyobj::attrib_t attrib; std::vector<tinyobj::shape_t> shapes; std::vector<tinyobj::material_t> materials; std::string warn, err;
+        std::string path = "OBJs/cards/cards.obj";
+        size_t pos = path.find_last_of("/\\"); std::string baseDir = (pos!=std::string::npos)? path.substr(0,pos+1) : std::string("");
+        if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str(), baseDir.c_str())) {
+            if (!materials.empty() && !materials[0].diffuse_texname.empty()) {
+                m_cardsTexture = loadTexture((baseDir + materials[0].diffuse_texname).c_str());
+            }
+        }
+    }
+    { // coffee
+        tinyobj::attrib_t attrib; std::vector<tinyobj::shape_t> shapes; std::vector<tinyobj::material_t> materials; std::string warn, err;
+        std::string path = "OBJs/coffee/coffee.obj";
+        size_t pos = path.find_last_of("/\\"); std::string baseDir = (pos!=std::string::npos)? path.substr(0,pos+1) : std::string("");
+        if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str(), baseDir.c_str())) {
+            if (!materials.empty() && !materials[0].diffuse_texname.empty()) {
+                m_coffeeTexture = loadTexture((baseDir + materials[0].diffuse_texname).c_str());
+            }
+        }
+    }
+    { // cup
+        tinyobj::attrib_t attrib; std::vector<tinyobj::shape_t> shapes; std::vector<tinyobj::material_t> materials; std::string warn, err;
+        std::string path = "OBJs/cup/cup.obj";
+        size_t pos = path.find_last_of("/\\"); std::string baseDir = (pos!=std::string::npos)? path.substr(0,pos+1) : std::string("");
+        if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str(), baseDir.c_str())) {
+            if (!materials.empty() && !materials[0].diffuse_texname.empty()) {
+                m_cupTexture = loadTexture((baseDir + materials[0].diffuse_texname).c_str());
+            }
+        }
+    }
+    { // fruits / bowlWithFruits
+        tinyobj::attrib_t attrib; std::vector<tinyobj::shape_t> shapes; std::vector<tinyobj::material_t> materials; std::string warn, err;
+        std::string path = "OBJs/fruits/bowlWithFruits.obj";
+        size_t pos = path.find_last_of("/\\"); std::string baseDir = (pos!=std::string::npos)? path.substr(0,pos+1) : std::string("");
+        if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str(), baseDir.c_str())) {
+            // Cargar la primera textura que aparezca en materiales (map_Kd)
+            for (const auto &m : materials) {
+                if (!m.diffuse_texname.empty()) {
+                    m_bowlTexture = loadTexture((baseDir + m.diffuse_texname).c_str());
+                    break;
+                }
+            }
+        }
+    }
     if (!setupSimpleShader()) return false;
 
     // Enable seamless cubemap sampling to avoid seams
@@ -203,13 +281,13 @@ void C3DViewer::update() {
     glm::vec3 cameraRight = glm::normalize(glm::cross(cameraFront, glm::vec3(0.0f, 1.0f, 0.0f)));
 
     // Movimientos
-    if (glfwGetKey(m_window, GLFW_KEY_UP) == GLFW_PRESS)
+    if (glfwGetKey(m_window, GLFW_KEY_UP) == GLFW_PRESS || glfwGetKey(m_window, GLFW_KEY_W) == GLFW_PRESS)
         cameraPos += moveDir * velocity;
-    if (glfwGetKey(m_window, GLFW_KEY_DOWN) == GLFW_PRESS)
+    if (glfwGetKey(m_window, GLFW_KEY_DOWN) == GLFW_PRESS || glfwGetKey(m_window, GLFW_KEY_S) == GLFW_PRESS)
         cameraPos -= moveDir * velocity;
-    if (glfwGetKey(m_window, GLFW_KEY_LEFT) == GLFW_PRESS)
+    if (glfwGetKey(m_window, GLFW_KEY_LEFT) == GLFW_PRESS || glfwGetKey(m_window, GLFW_KEY_A) == GLFW_PRESS)
         cameraPos -= cameraRight * velocity;
-    if (glfwGetKey(m_window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+    if (glfwGetKey(m_window, GLFW_KEY_RIGHT) == GLFW_PRESS || glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS)
         cameraPos += cameraRight * velocity;
 }
 
@@ -336,7 +414,7 @@ void C3DViewer::render() {
     // --- Preparación de Objetos Iluminados ---
     glUseProgram(m_shaderProgram);
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, m_skyboxTexture); // Unidad 1 para el Skybox (Ambient/Reflection)
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_skyboxTexture); 
     glUniform1i(glGetUniformLocation(m_shaderProgram, "skybox"), 1);
     glActiveTexture(GL_TEXTURE0);
 
@@ -345,7 +423,6 @@ void C3DViewer::render() {
     glUniform3fv(glGetUniformLocation(m_shaderProgram, "viewPos"), 1, &camPos[0]);
     glUniform1i(glGetUniformLocation(m_shaderProgram, "attenuationEnabled"), globalUIState.attenuation);
 
-    // Datos de Luces
     for (int i = 0; i < 3; i++) {
         char name[64];
         snprintf(name, sizeof(name), "lightPos[%d]", i);
@@ -358,20 +435,23 @@ void C3DViewer::render() {
         glUniform3fv(glGetUniformLocation(m_shaderProgram, name), 1, globalUIState.lightSpecular[i]);
         snprintf(name, sizeof(name), "lightEnabled[%d]", i);
         glUniform1i(glGetUniformLocation(m_shaderProgram, name), globalUIState.lightEnabled[i]);
-        // Modelo de Iluminación
         snprintf(name, sizeof(name), "lightModel[%d]", i);
         glUniform1i(glGetUniformLocation(m_shaderProgram, name), globalUIState.shadingModels[i]);
     }
 
+    // Cálculos globales de la mesa
+    float scale = 0.5f; 
+    float tableHeight = scale * (m_tableMaxY - m_tableMinY);
+    float tableHalfX = ((m_tableMaxX - m_tableMinX) * 0.5f) * scale;
+    float tableHalfZ = ((m_tableMaxZ - m_tableMinZ) * 0.5f) * scale;
+
     // --- DIBUJO DE LA MESA ---
     glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
-    // Material de madera
     glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.35f, 0.35f, 0.35f);
     glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.8f, 0.8f, 0.8f);
     glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.2f, 0.2f, 0.2f);
     glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 16.0f);
 
-    float scale = 0.5f;
     float displacementY = -m_tableMinY * scale;
     glm::mat4 tableModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, displacementY, 0.0f));
     tableModel = glm::scale(tableModel, glm::vec3(scale));
@@ -384,15 +464,12 @@ void C3DViewer::render() {
 
     // --- DIBUJO DE LA TETERA ---
     if (m_teapotVertexCount > 0 && m_teapotVAO != 0) {
-        // Reflejo de Fresnel
         glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 1);
-        // Material Metálico
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.02f, 0.02f, 0.02f);
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.1f, 0.1f, 0.1f);
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 1.0f, 1.0f, 1.0f);
         glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 256.0f);
-        // Cálculos de escala y posición
-        float tableHeight = scale * (m_tableMaxY - m_tableMinY);
+
         float teapotHeightModel = (m_teapotMaxY - m_teapotMinY);
         float teapotScale = (teapotHeightModel > 0.0001f) ? (tableHeight * 0.30f) / teapotHeightModel : 1.0f;
         float teapotDisplacementY = -m_teapotMinY * teapotScale + tableHeight + 0.02f;
@@ -403,9 +480,95 @@ void C3DViewer::render() {
 
         glBindTexture(GL_TEXTURE_2D, m_teapotTexture);
         glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (m_teapotTexture != 0 && m_teapotHasTexCoords) ? 1 : 0);
-
         glBindVertexArray(m_teapotVAO);
         glDrawArrays(GL_TRIANGLES, 0, m_teapotVertexCount);
+    }
+
+    // --- DIBUJO DE OBJETOS ADICIONALES ---
+    
+    // CARDS
+    if (m_cardsVertexCount > 0 && m_cardsVAO != 0) {
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.05f, 0.05f, 0.05f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.85f, 0.85f, 0.85f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.2f, 0.2f, 0.2f);
+        glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 32.0f);
+
+        float cardHeightModel = (m_cardsMaxY - m_cardsMinY);
+        float cardScale = (cardHeightModel > 0.0001f) ? (tableHeight * 0.35f) / cardHeightModel : 1.0f;
+        float cardDisplacementY = -m_cardsMinY * cardScale + tableHeight + 0.01f;
+
+        glm::mat4 cardModel = glm::translate(glm::mat4(1.0f), glm::vec3(tableHalfX - 6.0f, cardDisplacementY, 0.0f));
+        cardModel = glm::rotate(cardModel, glm::radians(90.0f), glm::vec3(0,1,0));
+        cardModel = glm::scale(cardModel, glm::vec3(cardScale));
+        glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(cardModel));
+        glBindTexture(GL_TEXTURE_2D, m_cardsTexture);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (m_cardsTexture != 0 && m_cardsHasTexCoords) ? 1 : 0);
+        glBindVertexArray(m_cardsVAO);
+        glDrawArrays(GL_TRIANGLES, 0, m_cardsVertexCount);
+    }
+
+    // COFFEE (2 TAZAS JUNTAS)
+    if (m_coffeeVertexCount > 0 && m_coffeeVAO != 0) {
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.02f, 0.02f, 0.02f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.9f, 0.8f, 0.7f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.2f, 0.2f, 0.2f);
+        glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 32.0f);
+
+        float coffeeHeightModel = (m_coffeeMaxY - m_coffeeMinY);
+        float coffeeScale = (coffeeHeightModel > 0.0001f) ? (tableHeight * 0.10f) / coffeeHeightModel : 1.0f;
+        float coffeeDisplacementY = -m_coffeeMinY * coffeeScale + tableHeight + 0.01f;
+
+        glm::mat4 coffeeModel1 = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, coffeeDisplacementY, tableHalfZ - 6.0f + 2.0f));
+        coffeeModel1 = glm::scale(coffeeModel1, glm::vec3(coffeeScale));
+        glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(coffeeModel1));
+        glBindTexture(GL_TEXTURE_2D, m_coffeeTexture);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (m_coffeeTexture != 0 && m_coffeeHasTexCoords) ? 1 : 0);
+        glBindVertexArray(m_coffeeVAO);
+        glDrawArrays(GL_TRIANGLES, 0, m_coffeeVertexCount);
+    }
+
+    // BOWL
+    if (m_bowlVertexCount > 0 && m_bowlVAO != 0) {
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.06f, 0.06f, 0.06f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.95f, 0.95f, 0.95f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.2f, 0.2f, 0.2f);
+        glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 32.0f);
+
+        float bowlHeightModel = (m_bowlMaxY - m_bowlMinY);
+        float bowlScale = (bowlHeightModel > 0.0001f) ? (tableHeight * 0.15f) / bowlHeightModel : 1.0f;
+        float bowlDisplacementY = -m_bowlMinY * bowlScale + tableHeight + 0.01f;
+
+        glm::mat4 bowlModel = glm::translate(glm::mat4(1.0f), glm::vec3(-tableHalfX + 6.0f, bowlDisplacementY, -4.0f));
+        bowlModel = glm::scale(bowlModel, glm::vec3(bowlScale));
+        glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(bowlModel));
+        glBindTexture(GL_TEXTURE_2D, m_bowlTexture);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (m_bowlTexture != 0 && m_bowlHasTexCoords) ? 1 : 0);
+        glBindVertexArray(m_bowlVAO);
+        glDrawArrays(GL_TRIANGLES, 0, m_bowlVertexCount);
+    }
+
+    // CUP
+    if (m_cupVertexCount > 0 && m_cupVAO != 0) {
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.02f, 0.02f, 0.02f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.9f, 0.9f, 0.9f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.2f, 0.2f, 0.2f);
+        glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 32.0f);
+
+        float cupHeightModel = (m_cupMaxY - m_cupMinY);
+        float cupScale = (cupHeightModel > 0.0001f) ? (tableHeight * 0.12f) / cupHeightModel : 1.0f;
+        float cupDisplacementY = -m_cupMinY * cupScale + tableHeight + 0.01f;
+
+        glm::mat4 cupModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, cupDisplacementY, -tableHalfZ + 3.0f));
+        cupModel = glm::scale(cupModel, glm::vec3(cupScale));
+        glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(cupModel));
+        glBindTexture(GL_TEXTURE_2D, m_cupTexture);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (m_cupTexture != 0 && m_cupHasTexCoords) ? 1 : 0);
+        glBindVertexArray(m_cupVAO);
+        glDrawArrays(GL_TRIANGLES, 0, m_cupVertexCount);
     }
 
     // --- Dibujo de esferas de luz ---
