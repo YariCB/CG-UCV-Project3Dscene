@@ -269,6 +269,34 @@ void C3DViewer::update() {
     updateCardsAnimation(deltaTime);
     updateTeapotAnimation(deltaTime);
 
+    // Cambio de modo de camara (caida del miniman si se pasa de GOD a FPS)
+    if (globalUIState.cameraMode != m_prevCameraMode) {
+        if (globalUIState.cameraMode == 0) { // Cambio a modo FPS
+            m_fallAnimationActive = true;
+            m_fallStartY = cameraPos.y;
+            float scale = 0.5f;
+            float tableHeight = scale * (m_tableMaxY - m_tableMinY);
+            m_fallTargetY = tableHeight + 1.5f;
+            m_fallTimer = 0.0f;
+        }
+        // El cambio a modo GOD no tiene animacion
+        m_prevCameraMode = globalUIState.cameraMode;
+    }
+    // Animacion de caida
+    if (m_fallAnimationActive) {
+        m_fallTimer += (float)deltaTime;
+        if (m_fallTimer >= m_fallDuration) {
+            m_fallAnimationActive = false;
+            cameraPos.y = m_fallTargetY;
+        }
+        else {
+            float t = m_fallTimer / m_fallDuration;
+            // Curva de easing para caida natural
+            t = t * (2.0f - t);
+            cameraPos.y = glm::mix(m_fallStartY, m_fallTargetY, t);
+        }
+    }
+
     // Movimiento del usuario: Up/Down manejan avance/retroceso y Right/Left manejan desplazamiento lateral
     float velocity = movementSpeed * deltaTime;
     glm::vec3 moveDir = cameraFront;
@@ -1598,7 +1626,7 @@ void C3DViewer::updateCardsAnimation(double deltaTime) {
 }
 
 void C3DViewer::updateTeapotAnimation(double deltaTime) {
-    const float moveFactor = 0.35f; // Desplazamiento
+    const float moveFactor = 0.32f; // Desplazamiento
     const float targetYaw = glm::radians(-90.0f);
 
     m_teapotAnimTimer += (float)deltaTime;

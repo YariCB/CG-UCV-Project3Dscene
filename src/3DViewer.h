@@ -409,6 +409,13 @@ protected:
     bool moveBackward = false;
     double m_lastFrame = 0.0;
     bool isGodMode = false;
+    int m_prevCameraMode = 0;
+    // Animacion de caida al cambiar a modo FPS
+    bool m_fallAnimationActive = false;
+    float m_fallStartY = 0.0f;
+    float m_fallTargetY = 0.0f;
+    float m_fallTimer = 0.0f;
+    const float m_fallDuration = 1.0f; // Duración en segundos
 
     // Funciones para inicializar geometria
     void setupTable();
