@@ -130,7 +130,7 @@ bool C3DViewer::setup()
 
     // Mesa OBJ
     loadOBJTo("OBJs/table/table4.obj", m_tableVAO, m_tableVBO, m_tableVertexCount, m_tableHasTexCoords, m_tableMinY, m_tableMaxY);
-    // Calcular extensión X/Z de la mesa para colocar objetos en los extremos
+    // Extensión X/Z de la mesa para colocar objetos en los extremos
     {
         tinyobj::attrib_t attrib; std::vector<tinyobj::shape_t> shapes; std::vector<tinyobj::material_t> materials; std::string warn, err;
         std::string path = "OBJs/table/table4.obj";
@@ -165,17 +165,19 @@ bool C3DViewer::setup()
 
     // Carga de objetos sobre la mesa
     loadOBJTo("OBJs/teapot/teapot.obj", m_teapotVAO, m_teapotVBO, m_teapotVertexCount, m_teapotHasTexCoords, m_teapotMinY, m_teapotMaxY);
-    // Cards: cargar por submeshes (cada carta es una submalla)
+
+    // Cards: Cada carta es una submalla
     m_cardsSubmeshes.clear();
     loadOBJToMulti("OBJs/cards/cards.obj", m_cardsSubmeshes, m_cardsMinY, m_cardsMaxY, m_cardsHasTexCoords);
     loadOBJTo("OBJs/coffee/coffee.obj", m_coffeeVAO, m_coffeeVBO, m_coffeeVertexCount, m_coffeeHasTexCoords, m_coffeeMinY, m_coffeeMaxY);
     loadOBJTo("OBJs/cup/cup.obj", m_cupVAO, m_cupVBO, m_cupVertexCount, m_cupHasTexCoords, m_cupMinY, m_cupMaxY);
-    // Para el tazón de frutas cargamos por submeshes (para poder animarlos individualmente)
+
+    // Bowl: Cada fruta es una submalla
     m_bowlSubmeshes.clear();
     loadOBJToMulti("OBJs/fruits/bowlWithFruits.obj", m_bowlSubmeshes, m_bowlMinY, m_bowlMaxY, m_bowlHasTexCoords);
 
-    // Intentar cargar texturas referenciadas en los MTL (si las hay)
-    { // cards
+    // Carga de texturas referenciadas en los MTL (si las hay)
+    { // Cards (torre de cartas)
         tinyobj::attrib_t attrib; std::vector<tinyobj::shape_t> shapes; std::vector<tinyobj::material_t> materials; std::string warn, err;
         std::string path = "OBJs/cards/cards.obj";
         size_t pos = path.find_last_of("/\\"); std::string baseDir = (pos!=std::string::npos)? path.substr(0,pos+1) : std::string("");
@@ -185,7 +187,7 @@ bool C3DViewer::setup()
             }
         }
     }
-    { // coffee
+    { // Coffee (dos tazas de café)
         tinyobj::attrib_t attrib; std::vector<tinyobj::shape_t> shapes; std::vector<tinyobj::material_t> materials; std::string warn, err;
         std::string path = "OBJs/coffee/coffee.obj";
         size_t pos = path.find_last_of("/\\"); std::string baseDir = (pos!=std::string::npos)? path.substr(0,pos+1) : std::string("");
@@ -195,7 +197,7 @@ bool C3DViewer::setup()
             }
         }
     }
-    { // cup
+    { // Cup (una taza)
         tinyobj::attrib_t attrib; std::vector<tinyobj::shape_t> shapes; std::vector<tinyobj::material_t> materials; std::string warn, err;
         std::string path = "OBJs/cup/cup.obj";
         size_t pos = path.find_last_of("/\\"); std::string baseDir = (pos!=std::string::npos)? path.substr(0,pos+1) : std::string("");
@@ -205,7 +207,7 @@ bool C3DViewer::setup()
             }
         }
     }
-    // Texturas de los submeshes del tazón se cargan al crear submeshes en loadOBJToMulti
+    // Las texturas de los submeshes del tazón se cargan al crear submeshes en loadOBJToMulti
     if (!setupSimpleShader()) return false;
 
     // Enable seamless cubemap sampling to avoid seams
@@ -255,7 +257,7 @@ void C3DViewer::update() {
     if (deltaTime < 0.0) deltaTime = 0.0;
     m_lastFrame = currentTime;
 
-    // Actualizar posiciones de las luces (animación) usando el factor de la UI
+    // Actualizar posiciones de las luces usando el factor de la UI
     for (int i = 0; i < 3; i++) {
         float angle = (float)(currentTime * m_lightAngularSpeed[i] * globalUIState.lightSpeed);
         m_lightPos[i].x = m_lightRadii[i] * cos(angle);
@@ -263,8 +265,9 @@ void C3DViewer::update() {
         m_lightPos[i].y = m_lightHeights[i];
     }
 
-    // actualizar animaciones de cartas
+    // Actualizar animaciones de cartas y tetera
     updateCardsAnimation(deltaTime);
+    updateTeapotAnimation(deltaTime);
 
     // Movimiento del usuario: Up/Down manejan avance/retroceso y Right/Left manejan desplazamiento lateral
     float velocity = movementSpeed * deltaTime;
@@ -441,7 +444,7 @@ void C3DViewer::render() {
     float tableHalfX = ((m_tableMaxX - m_tableMinX) * 0.5f) * scale;
     float tableHalfZ = ((m_tableMaxZ - m_tableMinZ) * 0.5f) * scale;
 
-    // --- DIBUJO DE LA MESA ---
+    // --- Dibujo de la Mesa ---
     glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
     glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.35f, 0.35f, 0.35f);
     glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.8f, 0.8f, 0.8f);
@@ -458,7 +461,7 @@ void C3DViewer::render() {
     glBindVertexArray(m_tableVAO);
     glDrawArrays(GL_TRIANGLES, 0, m_tableVertexCount);
 
-    // --- DIBUJO DE LA TETERA ---
+    // --- Dibujo de la Tetera ---
     if (m_teapotVertexCount > 0 && m_teapotVAO != 0) {
         glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 1);
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.02f, 0.02f, 0.02f);
@@ -472,6 +475,10 @@ void C3DViewer::render() {
 
         glm::mat4 teapotModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, teapotDisplacementY, 0.0f));
         teapotModel = glm::scale(teapotModel, glm::vec3(teapotScale));
+        // Aplicar animación
+        teapotModel = glm::translate(teapotModel, m_teapotExtraPos);
+        teapotModel = glm::rotate(teapotModel, m_teapotExtraYaw, glm::vec3(0, 1, 0)); // ROTACIÓN EN Y PRIMERO
+        teapotModel = glm::rotate(teapotModel, -m_teapotExtraPitch, glm::vec3(0, 0, 1)); // LUEGO INCLINACIÓN
         glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(teapotModel));
 
         glBindTexture(GL_TEXTURE_2D, m_teapotTexture);
@@ -480,9 +487,9 @@ void C3DViewer::render() {
         glDrawArrays(GL_TRIANGLES, 0, m_teapotVertexCount);
     }
 
-    // --- DIBUJO DE OBJETOS ADICIONALES ---
+    // --- Dibujo de Objetos Sobre la Mesa ---
     
-    // CARDS
+    // Cards
     if (!m_cardsSubmeshes.empty()) {
         glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.05f, 0.05f, 0.05f);
@@ -507,7 +514,7 @@ void C3DViewer::render() {
             glm::mat4 model = baseModel;
 
             if (m_cardsCollapsed) {
-                // --- Modo colapsado: cartas desordenadas sobre la mesa ---
+                // --- Modo colapsado: cartas desordenadas ---
                 float maxX = tableHalfX * 0.04f;
                 float maxZ = tableHalfZ * 0.04f;
 
@@ -530,7 +537,7 @@ void C3DViewer::render() {
             }
             else {
                 // --- Modo reconstrucción: pequeño rebote vertical ---
-                float bounce = (1.0f - collapseEase) * 0.02f * sin((float)tnow * 6.0f + (float)i);
+                float bounce = (1.0f - collapseEase) * 0.01f * sin((float)tnow * 6.0f + (float)i);
                 model = glm::translate(model, glm::vec3(0.0f, bounce, 0.0f));
             }
 
@@ -574,7 +581,7 @@ void C3DViewer::render() {
         glDrawArrays(GL_TRIANGLES, 0, m_cardsVertexCount);
     }
 
-    // COFFEE (2 TAZAS JUNTAS)
+    // Coffee (dos tazas juntas)
     if (m_coffeeVertexCount > 0 && m_coffeeVAO != 0) {
         glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.02f, 0.02f, 0.02f);
@@ -595,7 +602,7 @@ void C3DViewer::render() {
         glDrawArrays(GL_TRIANGLES, 0, m_coffeeVertexCount);
     }
 
-    // BOWL (por submeshes)
+    // Bowl de Frutas
     if (!m_bowlSubmeshes.empty()) {
         glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.06f, 0.06f, 0.06f);
@@ -621,7 +628,6 @@ void C3DViewer::render() {
             }
             glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
 
-            // Bind textures for this submesh: diffuse->unit0, skybox->1 already bound, ambient->2, specular->3
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, sm.texDiffuse);
             glActiveTexture(GL_TEXTURE2);
@@ -638,7 +644,7 @@ void C3DViewer::render() {
         }
     }
 
-    // CUP
+    // Cup (taza)
     if (m_cupVertexCount > 0 && m_cupVAO != 0) {
         glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.02f, 0.02f, 0.02f);
@@ -710,7 +716,7 @@ void C3DViewer::resize(int new_width, int new_height)
     width = new_width;
     height = new_height;
 
-    // actualizamos el viewport cada vez que haya un resize
+    // Actualización del viewport cada vez que haya un resize
     glViewport(0, 0, width, height);
 }
 
@@ -734,13 +740,11 @@ bool C3DViewer::setupShader()
 
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
-    // Ensure sampler bindings for the main shader: texture_diffuse -> unit 0, skybox -> unit 1
     glUseProgram(m_shaderProgram);
     GLint locTex = glGetUniformLocation(m_shaderProgram, "texture_diffuse");
     if (locTex >= 0) glUniform1i(locTex, 0);
     GLint locSky = glGetUniformLocation(m_shaderProgram, "skybox");
     if (locSky >= 0) glUniform1i(locSky, 1);
-    // Bind additional maps: ambient -> unit 2, specular -> unit 3
     GLint locAmb = glGetUniformLocation(m_shaderProgram, "texture_ambient");
     if (locAmb >= 0) glUniform1i(locAmb, 2);
     GLint locSpec = glGetUniformLocation(m_shaderProgram, "texture_specular");
@@ -824,8 +828,7 @@ void C3DViewer::cursorPosCallbackStatic(GLFWwindow* window, double xpos, double 
 }
 
 void C3DViewer::setupTable() {
-    // Definimos un cubo completo para la mesa (posiciones, normales, color)
-    // Para simplificar ahora, usamos 6 caras: Pos(3), Color(3)
+    // Definición de un cubo completo para la mesa (posiciones, normales, color)
     float tableVertices[] = {
         // Cara Trasera (normal 0,0,-1)
         -0.5f, -0.5f, -0.5f,  0,0,-1,  0.4f, 0.2f, 0.1f,
@@ -893,7 +896,7 @@ void C3DViewer::setupTable() {
     glBindBuffer(GL_ARRAY_BUFFER, m_tableVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(tableVertices), tableVertices, GL_STATIC_DRAW);
 
-    // Atributo Posici�n (0)
+    // Atributo Posicion (0)
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
     // Atributo Normal (1)
@@ -907,7 +910,7 @@ void C3DViewer::setupTable() {
 }
 
 void C3DViewer::setupSkybox() {
-    // V�rtices para un cubo que nos rodea (solo posici�n)
+    // Vertices para un cubo que nos rodea (solo posicion)
     float skyboxVertices[] = {
         //   Posiciones (x, y, z)      // Colores (r, g, b)
         -1.0f,  1.0f, -1.0f,  0.5f, 0.8f, 1.0f,
@@ -960,7 +963,7 @@ void C3DViewer::setupSkybox() {
     glBindBuffer(GL_ARRAY_BUFFER, m_skyboxVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(skyboxVertices), skyboxVertices, GL_STATIC_DRAW);
 
-    // Para el Skybox solo necesitamos posici�n (layout 0)
+    // Para el Skybox solo se necesita la posicion (layout 0)
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
@@ -991,7 +994,7 @@ void C3DViewer::setupSphere() {
             vertices.push_back(z);
         }
     }
-    // indices para tri�ngulos
+    // Indices para triangulos
     std::vector<unsigned int> indices;
     for (int i = 0; i < stacks; ++i) {
         for (int j = 0; j < slices; ++j) {
@@ -1042,7 +1045,7 @@ bool C3DViewer::setupSimpleShader() {
     glUseProgram(m_simpleShader);
     GLint loc = glGetUniformLocation(m_simpleShader, "skybox");
     if (loc >= 0) glUniform1i(loc, 0);
-    // Ahora creamos un shader sencillo para las esferas de luz
+    // Shader sencillo para las esferas de luz
     GLuint vert = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vert, 1, &lightVertexSrc, nullptr);
     glCompileShader(vert);
@@ -1114,14 +1117,14 @@ void C3DViewer::loadOBJ(const std::string& path) {
     m_tableVertexCount = vertices.size();
     m_tableHasTexCoords = hasTexCoords;
 
-    // Calcular los límites en Y
+    // Calculo de los límites en Y
     float minY = std::numeric_limits<float>::max();
     float maxY = -std::numeric_limits<float>::max();
     for (const auto& v : vertices) {
         if (v.Position.y < minY) minY = v.Position.y;
         if (v.Position.y > maxY) maxY = v.Position.y;
     }
-        // If normals missing, compute smooth normals per-triangle
+        // Calculo de normales si el OBJ no las proporciona
         if (!hasNormals && vertices.size() >= 3) {
             for (size_t i = 0; i + 2 < vertices.size(); i += 3) {
                 glm::vec3 v0 = vertices[i + 0].Position;
@@ -1142,11 +1145,11 @@ void C3DViewer::loadOBJ(const std::string& path) {
             }
         }
 
-        // Create GPU buffers
+    // Creacion de búfer de GPU
     m_tableMaxY = maxY;
     std::cout << "Altura de la mesa: minY = " << minY << ", maxY = " << maxY << ", altura total = " << (maxY - minY) << std::endl;
 
-    // If OBJ didn't provide normals, compute smooth vertex normals from the triangle list
+	// Calculo de vertices de normales si no se proporcionan en el OBJ
     if (!hasNormals && m_tableVertexCount >= 3) {
         for (size_t i = 0; i + 2 < vertices.size(); i += 3) {
             glm::vec3 v0 = vertices[i + 0].Position;
@@ -1159,12 +1162,11 @@ void C3DViewer::loadOBJ(const std::string& path) {
                 vertices[i + 2].Normal += faceNormal;
             }
         }
-        // normalize accumulated normals
         for (size_t i = 0; i < vertices.size(); ++i) {
             if (glm::length(vertices[i].Normal) > 0.0001f)
                 vertices[i].Normal = glm::normalize(vertices[i].Normal);
             else
-                vertices[i].Normal = glm::vec3(0.0f, 1.0f, 0.0f); // fallback
+                vertices[i].Normal = glm::vec3(0.0f, 1.0f, 0.0f);
         }
         std::cout << "Computed vertex normals for OBJ (was missing in file)." << std::endl;
     }
@@ -1185,7 +1187,7 @@ void C3DViewer::loadOBJ(const std::string& path) {
     glBindBuffer(GL_ARRAY_BUFFER, m_tableVBO);
     glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
 
-    // Posición
+    // Posicion
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
     // Normales
@@ -1222,7 +1224,6 @@ unsigned int C3DViewer::loadTexture(const char* path) {
     glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
     glGenerateMipmap(GL_TEXTURE_2D);
 
-    // Set texture wrapping and filtering options
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
@@ -1238,7 +1239,7 @@ unsigned int C3DViewer::loadCubemap(std::vector<std::string> faces) {
     glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
     int width, height, nrChannels;
     int faceWidth = -1, faceHeight = -1;
-    int targetFaceSize = -1; // we will enforce square faces for cubemap
+    int targetFaceSize = -1;
     bool allFacesLoaded = true;
     stbi_set_flip_vertically_on_load(false);
     if (faces.size() != 6) {
@@ -1247,12 +1248,9 @@ unsigned int C3DViewer::loadCubemap(std::vector<std::string> faces) {
     for (unsigned int i = 0; i < faces.size(); i++) {
         unsigned char* data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, STBI_rgb_alpha);
         if (data) {
-            //std::cout << "  -> face size: " << width << "x" << height << " channels(requested=4)\n";
-            // Determine target square size (first successful face sets it)
             int curMin = std::min(width, height);
             if (targetFaceSize < 0) targetFaceSize = curMin;
 
-            // If current face is not the target size or not square, crop center to targetFaceSize
             unsigned char* uploadData = data;
             bool allocatedTemp = false;
             if (width != targetFaceSize || height != targetFaceSize) {
@@ -1260,10 +1258,8 @@ unsigned int C3DViewer::loadCubemap(std::vector<std::string> faces) {
                 if (temp) {
                     uploadData = temp;
                     allocatedTemp = true;
-                    //std::cout << "  -> resized face to " << targetFaceSize << "x" << targetFaceSize << "\n";
                 }
                 else {
-                    //std::cout << "  -> resize failed, will attempt center-crop fallback\n";
                     int xoff = (width - targetFaceSize) / 2;
                     int yoff = (height - targetFaceSize) / 2;
                     size_t outRowBytes = (size_t)targetFaceSize * 4;
@@ -1275,11 +1271,9 @@ unsigned int C3DViewer::loadCubemap(std::vector<std::string> faces) {
                     }
                     uploadData = tmp2;
                     allocatedTemp = true;
-                    //std::cout << "  -> cropped face to " << targetFaceSize << "x" << targetFaceSize << " (fallback)\n";
                 }
             }
 
-            // Update faceWidth/faceHeight expectations
             if (faceWidth < 0) {
                 faceWidth = targetFaceSize;
                 faceHeight = targetFaceSize;
@@ -1322,7 +1316,6 @@ unsigned int C3DViewer::loadCubemap(std::vector<std::string> faces) {
     return textureID;
 }
 
-// Load OBJ into a provided mesh (doesn't overwrite table members)
 void C3DViewer::loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVBO, size_t& outVertexCount, bool& outHasTexCoords, float& outMinY, float& outMaxY) {
     tinyobj::attrib_t attrib;
     std::vector<tinyobj::shape_t> shapes;
@@ -1602,4 +1595,108 @@ void C3DViewer::updateCardsAnimation(double deltaTime) {
     else {
         m_cardsAnimPhase = m_cardsAnimTimer / m_cardsCyclePeriod;
     }
+}
+
+void C3DViewer::updateTeapotAnimation(double deltaTime) {
+    const float moveFactor = 0.35f; // Desplazamiento
+    const float targetYaw = glm::radians(-90.0f);
+
+    m_teapotAnimTimer += (float)deltaTime;
+    if (m_teapotAnimTimer >= m_teapotCyclePeriod) {
+        m_teapotAnimTimer = 0.0f;
+        m_teapotAnimStage = 0;
+    }
+
+    // Duración de animación (40 segs)
+    const float stageDurations[] = {
+        2.0f, // 0: levantar
+        3.0f, // 1: desplazar hacia taza
+        2.0f, // 2: rotar para apuntar
+        2.0f, // 3: inclinar
+        2.0f, // 4: volver vertical
+        3.0f, // 5: regresar
+        2.0f, // 6: bajar
+        24.0f // 7: reposo
+    };
+    const int numStages = sizeof(stageDurations) / sizeof(float);
+
+    float elapsed = m_teapotAnimTimer;
+    int stage = 0;
+    while (stage < numStages && elapsed > stageDurations[stage]) {
+        elapsed -= stageDurations[stage];
+        stage++;
+    }
+    if (stage >= numStages) stage = numStages - 1;
+    m_teapotAnimStage = stage;
+    float progress = elapsed / stageDurations[stage]; // 0..1
+
+    // Parametros de la mesa
+    float scale = 0.5f;
+    float tableHeight = scale * (m_tableMaxY - m_tableMinY);
+    float tableHalfZ = ((m_tableMaxZ - m_tableMinZ) * 0.5f) * scale;
+
+    // Posicion de la taza cup
+    float cupHeightModel = (m_cupMaxY - m_cupMinY);
+    float cupScale = (cupHeightModel > 0.0001f) ? (tableHeight * 0.12f) / cupHeightModel : 1.0f;
+    float cupDisplacementY = -m_cupMinY * cupScale + tableHeight + 0.01f;
+    glm::vec3 cupPos(0.0f, cupDisplacementY, -tableHalfZ + 3.0f);
+
+    // Altura base de la tetera (sin animación)
+    float teapotHeightModel = (m_teapotMaxY - m_teapotMinY);
+    float teapotScale = (teapotHeightModel > 0.0001f) ? (tableHeight * 0.30f) / teapotHeightModel : 1.0f;
+    float teapotBaseY = -m_teapotMinY * teapotScale + tableHeight + 0.02f;
+
+    const float liftHeight = 0.5f;        // cuánto se eleva
+    const float maxPitch = glm::radians(30.0f); // inclinación máxima
+
+    glm::vec3 targetExtraPos(0.0f);
+    float targetExtraPitch = 0.0f;
+    float targetExtraYaw = 0.0f;
+
+    switch (stage) {
+    case 0: // levantar
+        targetExtraPos.y = liftHeight * progress;
+        targetExtraYaw = 0.0f;
+        break;
+    case 1: // desplazar hacia la taza
+        targetExtraPos.y = liftHeight;
+        targetExtraPos.z = cupPos.z * moveFactor * progress;
+        targetExtraYaw = 0.0f;
+        break;
+    case 2: // rotar para apuntar
+        targetExtraPos.y = liftHeight;
+        targetExtraPos.z = cupPos.z * moveFactor;
+        targetExtraYaw = targetYaw * progress;
+        break;
+    case 3: // inclinar
+        targetExtraPos.y = liftHeight;
+        targetExtraPos.z = cupPos.z * moveFactor;
+        targetExtraYaw = targetYaw;
+        targetExtraPitch = maxPitch * progress;
+        break;
+    case 4: // volver vertical
+        targetExtraPos.y = liftHeight;
+        targetExtraPos.z = cupPos.z * moveFactor;
+        targetExtraYaw = targetYaw;
+        targetExtraPitch = maxPitch * (1.0f - progress);
+        break;
+    case 5: // regresar
+        targetExtraPos.y = liftHeight;
+        targetExtraPos.z = cupPos.z * moveFactor * (1.0f - progress);
+        targetExtraYaw = targetYaw * (1.0f - progress);
+        break;
+    case 6: // bajar
+        targetExtraPos.y = liftHeight * (1.0f - progress);
+        targetExtraYaw = 0.0f;
+        break;
+    case 7: // reposo
+        targetExtraPos = glm::vec3(0.0f);
+        targetExtraYaw = 0.0f;
+        targetExtraPitch = 0.0f;
+        break;
+    }
+
+    m_teapotExtraPos = targetExtraPos;
+    m_teapotExtraPitch = targetExtraPitch;
+    m_teapotExtraYaw = targetExtraYaw;
 }

@@ -83,9 +83,16 @@ protected:
     float m_teapotMinY, m_teapotMaxY;
     GLuint m_teapotTexture = 0;
     bool m_teapotHasTexCoords = false;
+    // Animación de la tetera
+    float m_teapotAnimTimer = 0.0f;
+    float m_teapotCyclePeriod = 40.0f;
+    int m_teapotAnimStage = 0;
+    glm::vec3 m_teapotExtraPos = glm::vec3(0.0f);
+    float m_teapotExtraYaw = 0.0f;
+    float m_teapotExtraPitch = 0.0f;
+    void updateTeapotAnimation(double deltaTime);
 
     // Datos para el tazón de frutas
-    // Datos para el tazón de frutas (soporte por submesh)
     struct Submesh {
         GLuint vao = 0;
         GLuint vbo = 0;
@@ -96,7 +103,7 @@ protected:
         GLuint texSpecular = 0;
         bool hasTexCoords = false;
         float minY = 0.0f, maxY = 0.0f;
-        bool isFruit = false; // marcado automáticamente según altura
+        bool isFruit = false;
         std::string name;
     };
     // Declaración ahora que Submesh está definida
@@ -128,12 +135,12 @@ protected:
     float m_cardsMinY, m_cardsMaxY;
     GLuint m_cardsTexture = 0;
     bool m_cardsHasTexCoords = false;
-    std::vector<Submesh> m_cardsSubmeshes; // cada carta como submesh
+    std::vector<Submesh> m_cardsSubmeshes;
     // Animación cartas
     float m_cardsAnimTimer = 0.0f;
-    float m_cardsAnimPhase = 0.0f; // 0..1 progress of current action
+    float m_cardsAnimPhase = 0.0f;
     bool m_cardsCollapsed = false;
-    float m_cardsCyclePeriod = 8.0f; // seconds between toggles
+    float m_cardsCyclePeriod = 8.0f;
     void updateCardsAnimation(double deltaTime);
 
     GLuint m_shaderProgram = 0;
@@ -163,7 +170,6 @@ protected:
         uniform mat4 model;
         uniform mat4 view;
         uniform mat4 projection;
-        // material uniforms (populated from C++ side)
         uniform vec3 materialAmbient;
         uniform vec3 materialDiffuse;
         uniform vec3 materialSpecular;
@@ -220,7 +226,6 @@ protected:
             vec3 baseColor;
 
             if (isReflective) {
-                // Plateado oscuro (metal)
                 baseColor = vec3(0.12, 0.12, 0.12);
             } else {
                 baseColor = useTexture ? texColor.rgb : (length(Color) > 0.1 ? Color : vec3(0.6));
@@ -389,7 +394,7 @@ protected:
     float m_lightHeights[3] = { 45.0f, 42.0f, 48.0f };
     float m_lightAngularSpeed[3] = { 0.8f, 1.1f, 0.6f };
 
-    // Camera / navigation state
+    // Estado de camara/navegacion
     glm::vec3 cameraPos = glm::vec3(0.0f, 38.0f, 10.0f);
     glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
     glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
