@@ -33,6 +33,8 @@ private:
     void loadOBJ(const std::string& path);
     // Carga OBJ a una malla específica (no sobrescribe la mesa)
     void loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVBO, size_t& outVertexCount, bool& outHasTexCoords, float& outMinY, float& outMaxY);
+    // Carga OBJ y genera submesh por cada shape (útil para objetos con submallas)
+    // (declarada después de la definición de Submesh)
     unsigned int loadTexture(const char* path);
 
     // Callbacks y lógica
@@ -83,11 +85,24 @@ protected:
     bool m_teapotHasTexCoords = false;
 
     // Datos para el tazón de frutas
-    GLuint m_bowlVAO = 0;
-    GLuint m_bowlVBO = 0;
-    size_t m_bowlVertexCount = 0;
-    float m_bowlMinY, m_bowlMaxY;
-    GLuint m_bowlTexture = 0;
+    // Datos para el tazón de frutas (soporte por submesh)
+    struct Submesh {
+        GLuint vao = 0;
+        GLuint vbo = 0;
+        size_t vertexCount = 0;
+        int materialId = -1;
+        GLuint texAmbient = 0;
+        GLuint texDiffuse = 0;
+        GLuint texSpecular = 0;
+        bool hasTexCoords = false;
+        float minY = 0.0f, maxY = 0.0f;
+        bool isFruit = false; // marcado automáticamente según altura
+        std::string name;
+    };
+    // Declaración ahora que Submesh está definida
+    void loadOBJToMulti(const std::string& path, std::vector<Submesh>& outSubmeshes, float& outMinY, float& outMaxY, bool& outHasTexCoords);
+    std::vector<Submesh> m_bowlSubmeshes;
+    float m_bowlMinY = 0.0f, m_bowlMaxY = 0.0f;
     bool m_bowlHasTexCoords = false;
 
     // Datos para la taza
@@ -113,6 +128,13 @@ protected:
     float m_cardsMinY, m_cardsMaxY;
     GLuint m_cardsTexture = 0;
     bool m_cardsHasTexCoords = false;
+    std::vector<Submesh> m_cardsSubmeshes; // cada carta como submesh
+    // Animación cartas
+    float m_cardsAnimTimer = 0.0f;
+    float m_cardsAnimPhase = 0.0f; // 0..1 progress of current action
+    bool m_cardsCollapsed = false;
+    float m_cardsCyclePeriod = 8.0f; // seconds between toggles
+    void updateCardsAnimation(double deltaTime);
 
     GLuint m_shaderProgram = 0;
     double lastTime = 0.0;
@@ -168,7 +190,11 @@ protected:
         uniform vec3 viewPos;
         uniform bool attenuationEnabled;
         uniform sampler2D texture_diffuse;
+        uniform sampler2D texture_ambient;
+        uniform sampler2D texture_specular;
         uniform bool useTexture;
+        uniform bool hasAmbientMap;
+        uniform bool hasSpecularMap;
         uniform samplerCube skybox;
 
         uniform vec3 materialAmbient;
@@ -202,7 +228,8 @@ protected:
 
             // AMBIENTE (contribución del skybox)
             vec3 skyColor = texture(skybox, norm).rgb;
-            vec3 ambient = skyColor * 0.3 * baseColor;
+            vec3 ambientMap = hasAmbientMap ? texture(texture_ambient, TexCoords).rgb : vec3(1.0);
+            vec3 ambient = skyColor * 0.3 * baseColor * ambientMap;
 
             vec3 lightingSum = vec3(0.0);
 
@@ -235,17 +262,21 @@ protected:
                         vec3 reflectDir = reflect(-lightDir, norm);
                         float spec = pow(max(dot(viewDir, reflectDir), 0.0), materialShininess);
                         if (isReflective) {
-                            specular = lightSpecular[i] * spec * materialSpecular * 12.0;
+                            float specFactor = hasSpecularMap ? texture(texture_specular, TexCoords).r : 1.0;
+                            specular = lightSpecular[i] * spec * materialSpecular * 12.0 * specFactor;
                         } else {
-                            specular = lightSpecular[i] * spec * materialSpecular * baseColor;
+                            float specFactor = hasSpecularMap ? texture(texture_specular, TexCoords).r : 1.0;
+                            specular = lightSpecular[i] * spec * materialSpecular * baseColor * specFactor;
                         }
                     } else { // Blinn-Phong
                         vec3 halfwayDir = normalize(lightDir + viewDir);
                         float spec = pow(max(dot(norm, halfwayDir), 0.0), materialShininess);
                         if (isReflective) {
-                            specular = lightSpecular[i] * spec * materialSpecular * 12.0;
+                            float specFactor = hasSpecularMap ? texture(texture_specular, TexCoords).r : 1.0;
+                            specular = lightSpecular[i] * spec * materialSpecular * 12.0 * specFactor;
                         } else {
-                            specular = lightSpecular[i] * spec * materialSpecular * baseColor;
+                            float specFactor = hasSpecularMap ? texture(texture_specular, TexCoords).r : 1.0;
+                            specular = lightSpecular[i] * spec * materialSpecular * baseColor * specFactor;
                         }
                     }
                 }

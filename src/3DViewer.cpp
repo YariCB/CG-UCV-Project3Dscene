@@ -7,6 +7,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/constants.hpp>
+#include <unordered_map>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -139,6 +140,7 @@ bool C3DViewer::setup()
             float maxX = -std::numeric_limits<float>::max();
             float minZ = std::numeric_limits<float>::max();
             float maxZ = -std::numeric_limits<float>::max();
+
             for (size_t i = 0; i + 2 < attrib.vertices.size(); i += 3) {
                 float x = attrib.vertices[i + 0];
                 float y = attrib.vertices[i + 1];
@@ -163,10 +165,14 @@ bool C3DViewer::setup()
 
     // Carga de objetos sobre la mesa
     loadOBJTo("OBJs/teapot/teapot.obj", m_teapotVAO, m_teapotVBO, m_teapotVertexCount, m_teapotHasTexCoords, m_teapotMinY, m_teapotMaxY);
-    loadOBJTo("OBJs/cards/cards.obj", m_cardsVAO, m_cardsVBO, m_cardsVertexCount, m_cardsHasTexCoords, m_cardsMinY, m_cardsMaxY);
+    // Cards: cargar por submeshes (cada carta es una submalla)
+    m_cardsSubmeshes.clear();
+    loadOBJToMulti("OBJs/cards/cards.obj", m_cardsSubmeshes, m_cardsMinY, m_cardsMaxY, m_cardsHasTexCoords);
     loadOBJTo("OBJs/coffee/coffee.obj", m_coffeeVAO, m_coffeeVBO, m_coffeeVertexCount, m_coffeeHasTexCoords, m_coffeeMinY, m_coffeeMaxY);
     loadOBJTo("OBJs/cup/cup.obj", m_cupVAO, m_cupVBO, m_cupVertexCount, m_cupHasTexCoords, m_cupMinY, m_cupMaxY);
-    loadOBJTo("OBJs/fruits/bowlWithFruits.obj", m_bowlVAO, m_bowlVBO, m_bowlVertexCount, m_bowlHasTexCoords, m_bowlMinY, m_bowlMaxY);
+    // Para el tazón de frutas cargamos por submeshes (para poder animarlos individualmente)
+    m_bowlSubmeshes.clear();
+    loadOBJToMulti("OBJs/fruits/bowlWithFruits.obj", m_bowlSubmeshes, m_bowlMinY, m_bowlMaxY, m_bowlHasTexCoords);
 
     // Intentar cargar texturas referenciadas en los MTL (si las hay)
     { // cards
@@ -199,20 +205,7 @@ bool C3DViewer::setup()
             }
         }
     }
-    { // fruits / bowlWithFruits
-        tinyobj::attrib_t attrib; std::vector<tinyobj::shape_t> shapes; std::vector<tinyobj::material_t> materials; std::string warn, err;
-        std::string path = "OBJs/fruits/bowlWithFruits.obj";
-        size_t pos = path.find_last_of("/\\"); std::string baseDir = (pos!=std::string::npos)? path.substr(0,pos+1) : std::string("");
-        if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str(), baseDir.c_str())) {
-            // Cargar la primera textura que aparezca en materiales (map_Kd)
-            for (const auto &m : materials) {
-                if (!m.diffuse_texname.empty()) {
-                    m_bowlTexture = loadTexture((baseDir + m.diffuse_texname).c_str());
-                    break;
-                }
-            }
-        }
-    }
+    // Texturas de los submeshes del tazón se cargan al crear submeshes en loadOBJToMulti
     if (!setupSimpleShader()) return false;
 
     // Enable seamless cubemap sampling to avoid seams
@@ -269,6 +262,9 @@ void C3DViewer::update() {
         m_lightPos[i].z = m_lightRadii[i] * sin(angle);
         m_lightPos[i].y = m_lightHeights[i];
     }
+
+    // actualizar animaciones de cartas
+    updateCardsAnimation(deltaTime);
 
     // Movimiento del usuario: Up/Down manejan avance/retroceso y Right/Left manejan desplazamiento lateral
     float velocity = movementSpeed * deltaTime;
@@ -487,7 +483,77 @@ void C3DViewer::render() {
     // --- DIBUJO DE OBJETOS ADICIONALES ---
     
     // CARDS
-    if (m_cardsVertexCount > 0 && m_cardsVAO != 0) {
+    if (!m_cardsSubmeshes.empty()) {
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.05f, 0.05f, 0.05f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.85f, 0.85f, 0.85f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.2f, 0.2f, 0.2f);
+        glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 32.0f);
+
+        float cardHeightModel = (m_cardsMaxY - m_cardsMinY);
+        float cardScale = (cardHeightModel > 0.0001f) ? (tableHeight * 0.35f) / cardHeightModel : 1.0f;
+        float cardDisplacementY = -m_cardsMinY * cardScale + tableHeight + 0.01f;
+
+        glm::mat4 baseModel = glm::translate(glm::mat4(1.0f), glm::vec3(tableHalfX - 6.0f, cardDisplacementY, 0.0f));
+        baseModel = glm::rotate(baseModel, glm::radians(90.0f), glm::vec3(0, 1, 0));
+        baseModel = glm::scale(baseModel, glm::vec3(cardScale));
+
+        float progress = m_cardsAnimPhase;
+        float collapseEase = progress * progress * (3.0f - 2.0f * progress); // smoothstep
+        double tnow = glfwGetTime();
+
+        for (size_t i = 0; i < m_cardsSubmeshes.size(); ++i) {
+            const auto& sm = m_cardsSubmeshes[i];
+            glm::mat4 model = baseModel;
+
+            if (m_cardsCollapsed) {
+                // --- Modo colapsado: cartas desordenadas sobre la mesa ---
+                float maxX = tableHalfX * 0.04f;
+                float maxZ = tableHalfZ * 0.04f;
+
+                // Desplazamientos horizontales pseudoaleatorios fijos por carta
+                float spreadX = sin((float)i * 2.0f) * maxX;
+                float spreadZ = cos((float)i * 3.0f) * maxZ;
+
+                // Rotación sobre Y aleatoria fija
+                float rotY = (float)i * 1.5f; // radianes
+
+                // Pequeñas inclinaciones para dar sensación de desorden
+                float tiltX = sin((float)i * 2.5f) * glm::radians(5.0f);
+                float tiltZ = cos((float)i * 4.0f) * glm::radians(5.0f);
+
+                // Aplicar transformaciones interpoladas por collapseEase (suavizado)
+                model = glm::translate(model, glm::vec3(spreadX * collapseEase, 0.0f, spreadZ * collapseEase));
+                model = glm::rotate(model, rotY * collapseEase, glm::vec3(0, 1, 0));
+                model = glm::rotate(model, tiltX * collapseEase, glm::vec3(1, 0, 0));
+                model = glm::rotate(model, tiltZ * collapseEase, glm::vec3(0, 0, 1));
+            }
+            else {
+                // --- Modo reconstrucción: pequeño rebote vertical ---
+                float bounce = (1.0f - collapseEase) * 0.02f * sin((float)tnow * 6.0f + (float)i);
+                model = glm::translate(model, glm::vec3(0.0f, bounce, 0.0f));
+            }
+
+            glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+
+            // --- Enlace de texturas por submalla ---
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, sm.texDiffuse ? sm.texDiffuse : m_cardsTexture);
+            glActiveTexture(GL_TEXTURE2);
+            glBindTexture(GL_TEXTURE_2D, sm.texAmbient);
+            glActiveTexture(GL_TEXTURE3);
+            glBindTexture(GL_TEXTURE_2D, sm.texSpecular);
+
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (sm.texDiffuse != 0 && sm.hasTexCoords) ? 1 : 0);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "hasAmbientMap"), sm.texAmbient != 0 ? 1 : 0);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "hasSpecularMap"), sm.texSpecular != 0 ? 1 : 0);
+
+            glBindVertexArray(sm.vao);
+            glDrawArrays(GL_TRIANGLES, 0, sm.vertexCount);
+        }
+    }
+    else if (m_cardsVertexCount > 0 && m_cardsVAO != 0) {
+        // Fallback: renderizado con un solo VAO (sin submeshes)
         glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.05f, 0.05f, 0.05f);
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.85f, 0.85f, 0.85f);
@@ -499,7 +565,7 @@ void C3DViewer::render() {
         float cardDisplacementY = -m_cardsMinY * cardScale + tableHeight + 0.01f;
 
         glm::mat4 cardModel = glm::translate(glm::mat4(1.0f), glm::vec3(tableHalfX - 6.0f, cardDisplacementY, 0.0f));
-        cardModel = glm::rotate(cardModel, glm::radians(90.0f), glm::vec3(0,1,0));
+        cardModel = glm::rotate(cardModel, glm::radians(90.0f), glm::vec3(0, 1, 0));
         cardModel = glm::scale(cardModel, glm::vec3(cardScale));
         glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(cardModel));
         glBindTexture(GL_TEXTURE_2D, m_cardsTexture);
@@ -529,8 +595,8 @@ void C3DViewer::render() {
         glDrawArrays(GL_TRIANGLES, 0, m_coffeeVertexCount);
     }
 
-    // BOWL
-    if (m_bowlVertexCount > 0 && m_bowlVAO != 0) {
+    // BOWL (por submeshes)
+    if (!m_bowlSubmeshes.empty()) {
         glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.06f, 0.06f, 0.06f);
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.95f, 0.95f, 0.95f);
@@ -541,13 +607,35 @@ void C3DViewer::render() {
         float bowlScale = (bowlHeightModel > 0.0001f) ? (tableHeight * 0.15f) / bowlHeightModel : 1.0f;
         float bowlDisplacementY = -m_bowlMinY * bowlScale + tableHeight + 0.01f;
 
-        glm::mat4 bowlModel = glm::translate(glm::mat4(1.0f), glm::vec3(-tableHalfX + 6.0f, bowlDisplacementY, -4.0f));
-        bowlModel = glm::scale(bowlModel, glm::vec3(bowlScale));
-        glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(bowlModel));
-        glBindTexture(GL_TEXTURE_2D, m_bowlTexture);
-        glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (m_bowlTexture != 0 && m_bowlHasTexCoords) ? 1 : 0);
-        glBindVertexArray(m_bowlVAO);
-        glDrawArrays(GL_TRIANGLES, 0, m_bowlVertexCount);
+        glm::mat4 bowlModelBase = glm::translate(glm::mat4(1.0f), glm::vec3(-tableHalfX + 6.0f, bowlDisplacementY, -4.0f));
+        bowlModelBase = glm::scale(bowlModelBase, glm::vec3(bowlScale));
+
+        double tnow = glfwGetTime();
+        for (size_t i = 0; i < m_bowlSubmeshes.size(); ++i) {
+            const auto &sm = m_bowlSubmeshes[i];
+            glm::mat4 model = bowlModelBase;
+            if (sm.isFruit) {
+                float rise = sin((float)tnow * 3.0f + (float)i) * 0.02f + 0.02f;
+                model = glm::translate(model, glm::vec3(0.0f, rise, 0.0f));
+                model = glm::rotate(model, sin((float)tnow * 1.5f + (float)i) * glm::radians(4.0f), glm::vec3(0, 0, 1));
+            }
+            glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+
+            // Bind textures for this submesh: diffuse->unit0, skybox->1 already bound, ambient->2, specular->3
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, sm.texDiffuse);
+            glActiveTexture(GL_TEXTURE2);
+            glBindTexture(GL_TEXTURE_2D, sm.texAmbient);
+            glActiveTexture(GL_TEXTURE3);
+            glBindTexture(GL_TEXTURE_2D, sm.texSpecular);
+
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (sm.texDiffuse != 0 && sm.hasTexCoords) ? 1 : 0);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "hasAmbientMap"), sm.texAmbient != 0 ? 1 : 0);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "hasSpecularMap"), sm.texSpecular != 0 ? 1 : 0);
+
+            glBindVertexArray(sm.vao);
+            glDrawArrays(GL_TRIANGLES, 0, sm.vertexCount);
+        }
     }
 
     // CUP
@@ -652,6 +740,11 @@ bool C3DViewer::setupShader()
     if (locTex >= 0) glUniform1i(locTex, 0);
     GLint locSky = glGetUniformLocation(m_shaderProgram, "skybox");
     if (locSky >= 0) glUniform1i(locSky, 1);
+    // Bind additional maps: ambient -> unit 2, specular -> unit 3
+    GLint locAmb = glGetUniformLocation(m_shaderProgram, "texture_ambient");
+    if (locAmb >= 0) glUniform1i(locAmb, 2);
+    GLint locSpec = glGetUniformLocation(m_shaderProgram, "texture_specular");
+    if (locSpec >= 0) glUniform1i(locSpec, 3);
     return true;
 }
 
@@ -1028,7 +1121,28 @@ void C3DViewer::loadOBJ(const std::string& path) {
         if (v.Position.y < minY) minY = v.Position.y;
         if (v.Position.y > maxY) maxY = v.Position.y;
     }
-    m_tableMinY = minY;
+        // If normals missing, compute smooth normals per-triangle
+        if (!hasNormals && vertices.size() >= 3) {
+            for (size_t i = 0; i + 2 < vertices.size(); i += 3) {
+                glm::vec3 v0 = vertices[i + 0].Position;
+                glm::vec3 v1 = vertices[i + 1].Position;
+                glm::vec3 v2 = vertices[i + 2].Position;
+                glm::vec3 faceNormal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+                if (glm::length(faceNormal) > 0.0001f) {
+                    vertices[i + 0].Normal += faceNormal;
+                    vertices[i + 1].Normal += faceNormal;
+                    vertices[i + 2].Normal += faceNormal;
+                }
+            }
+            for (size_t i = 0; i < vertices.size(); ++i) {
+                if (glm::length(vertices[i].Normal) > 0.0001f)
+                    vertices[i].Normal = glm::normalize(vertices[i].Normal);
+                else
+                    vertices[i].Normal = glm::vec3(0.0f, 1.0f, 0.0f);
+            }
+        }
+
+        // Create GPU buffers
     m_tableMaxY = maxY;
     std::cout << "Altura de la mesa: minY = " << minY << ", maxY = " << maxY << ", altura total = " << (maxY - minY) << std::endl;
 
@@ -1319,4 +1433,173 @@ void C3DViewer::loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVB
     glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Color));
     glEnableVertexAttribArray(3);
     glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, TexCoords));
+}
+
+// Carga OBJ generando un Submesh por cada 'shape' del archivo OBJ.
+void C3DViewer::loadOBJToMulti(const std::string& path, std::vector<Submesh>& outSubmeshes, float& outMinY, float& outMaxY, bool& outHasTexCoords) {
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warn, err;
+
+    outSubmeshes.clear();
+    std::string baseDir = "";
+    size_t pos = path.find_last_of("/\\");
+    if (pos != std::string::npos) baseDir = path.substr(0, pos + 1);
+
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str(), baseDir.c_str())) {
+        std::cout << "Error cargando OBJ (multi): " << err << std::endl;
+        return;
+    }
+
+    bool anyHasTex = false;
+    float globalMinY = std::numeric_limits<float>::max();
+    float globalMaxY = -std::numeric_limits<float>::max();
+
+    for (size_t s = 0; s < shapes.size(); ++s) {
+        const auto& shape = shapes[s];
+        std::vector<Vertex> vertices;
+        bool hasTex = false;
+        bool hasNormals = false;
+
+        // Material para la forma (en caso de existir)
+        int chosenMat = -1;
+        if (!shape.mesh.material_ids.empty()) {
+            std::unordered_map<int,int> counts;
+            size_t faceIdx = 0;
+            for (int mid : shape.mesh.material_ids) {
+                counts[mid]++;
+                ++faceIdx;
+            }
+            int best = -1; int bestCount = -1;
+            for (auto &kv : counts) {
+                if (kv.second > bestCount) { best = kv.first; bestCount = kv.second; }
+            }
+            chosenMat = best;
+        }
+
+        // Construcción de vértices para esta forma
+        for (const auto& index : shape.mesh.indices) {
+            Vertex vertex{};
+            vertex.Position = {
+                attrib.vertices[3 * index.vertex_index + 0],
+                attrib.vertices[3 * index.vertex_index + 1],
+                attrib.vertices[3 * index.vertex_index + 2]
+            };
+            if (index.normal_index >= 0) {
+                hasNormals = true;
+                vertex.Normal = {
+                    attrib.normals[3 * index.normal_index + 0],
+                    attrib.normals[3 * index.normal_index + 1],
+                    attrib.normals[3 * index.normal_index + 2]
+                };
+            }
+            if (index.texcoord_index >= 0) {
+                hasTex = true;
+                vertex.TexCoords = {
+                    attrib.texcoords[2 * index.texcoord_index + 0],
+                    attrib.texcoords[2 * index.texcoord_index + 1]
+                };
+            }
+            vertex.Color = glm::vec3(1.0f);
+            vertices.push_back(vertex);
+        }
+
+        // Cálculo de normales si no son proporcionadas por el OBJ
+        if (!hasNormals && vertices.size() >= 3) {
+            std::vector<glm::vec3> accumulatedNormals(vertices.size(), glm::vec3(0.0f));
+            for (size_t i = 0; i + 2 < vertices.size(); i += 3) {
+                glm::vec3 v0 = vertices[i + 0].Position;
+                glm::vec3 v1 = vertices[i + 1].Position;
+                glm::vec3 v2 = vertices[i + 2].Position;
+                glm::vec3 faceNormal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+                if (glm::length(faceNormal) > 0.0001f) {
+                    accumulatedNormals[i + 0] += faceNormal;
+                    accumulatedNormals[i + 1] += faceNormal;
+                    accumulatedNormals[i + 2] += faceNormal;
+                }
+            }
+            for (size_t i = 0; i < vertices.size(); ++i) {
+                if (glm::length(accumulatedNormals[i]) > 0.0001f)
+                    vertices[i].Normal = glm::normalize(accumulatedNormals[i]);
+                else
+                    vertices[i].Normal = glm::vec3(0.0f, 1.0f, 0.0f); // normal por defecto
+            }
+        }
+
+		// Valor minY/max Y para esta forma
+        float minY = std::numeric_limits<float>::max();
+        float maxY = -std::numeric_limits<float>::max();
+        for (const auto &v : vertices) {
+            if (v.Position.y < minY) minY = v.Position.y;
+            if (v.Position.y > maxY) maxY = v.Position.y;
+        }
+        if (minY < globalMinY) globalMinY = minY;
+        if (maxY > globalMaxY) globalMaxY = maxY;
+
+        // Buffers de GPU
+        Submesh sm;
+        sm.vertexCount = vertices.size();
+        sm.hasTexCoords = hasTex;
+        sm.minY = minY; sm.maxY = maxY;
+        sm.materialId = chosenMat;
+        sm.name = shape.name;
+
+        glGenVertexArrays(1, &sm.vao);
+        glGenBuffers(1, &sm.vbo);
+        glBindVertexArray(sm.vao);
+        glBindBuffer(GL_ARRAY_BUFFER, sm.vbo);
+        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Normal));
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Color));
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, TexCoords));
+
+		// Cargar texturas del material asociado (si existe)
+        if (chosenMat >= 0 && chosenMat < (int)materials.size()) {
+            const auto &mat = materials[chosenMat];
+            if (!mat.ambient_texname.empty()) {
+                sm.texAmbient = loadTexture((baseDir + mat.ambient_texname).c_str());
+            }
+            if (!mat.diffuse_texname.empty()) {
+                sm.texDiffuse = loadTexture((baseDir + mat.diffuse_texname).c_str());
+            }
+            if (!mat.specular_texname.empty()) {
+                sm.texSpecular = loadTexture((baseDir + mat.specular_texname).c_str());
+            }
+        }
+
+        outSubmeshes.push_back(sm);
+    }
+
+    outMinY = globalMinY;
+    outMaxY = globalMaxY;
+    outHasTexCoords = false;
+    for (auto &s : outSubmeshes) if (s.hasTexCoords) { outHasTexCoords = true; break; }
+
+	// Marcar submeshes que podrían ser frutas basándonos en su altura relativa al mínimo global
+    float totalHeight = outMaxY - outMinY;
+    for (size_t i = 0; i < outSubmeshes.size(); ++i) {
+        float centroidY = (outSubmeshes[i].minY + outSubmeshes[i].maxY) * 0.5f;
+        outSubmeshes[i].isFruit = (centroidY > outMinY + totalHeight * 0.25f);
+    }
+
+    std::cout << "Loaded multi-shape OBJ: shapes=" << outSubmeshes.size() << " globalMinY=" << outMinY << " globalMaxY=" << outMaxY << std::endl;
+}
+
+// Actualiza animaciones simples (cartas)
+void C3DViewer::updateCardsAnimation(double deltaTime) {
+    m_cardsAnimTimer += (float)deltaTime;
+    if (m_cardsAnimTimer >= m_cardsCyclePeriod) {
+        m_cardsAnimTimer = 0.0f;
+        m_cardsCollapsed = !m_cardsCollapsed;
+        m_cardsAnimPhase = 0.0f;
+    }
+    else {
+        m_cardsAnimPhase = m_cardsAnimTimer / m_cardsCyclePeriod;
+    }
 }
