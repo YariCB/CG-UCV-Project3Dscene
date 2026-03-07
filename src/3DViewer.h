@@ -125,11 +125,18 @@ protected:
     GLuint m_cupTexture = 0;
     bool m_cupHasTexCoords = false;
 
-    // Datos para el café
+    // Datos para las tazas de cafe
     size_t m_coffeeVertexCount = 0;
     std::vector<Submesh> m_coffeeSubmeshes;
     float m_coffeeMinY, m_coffeeMaxY;
     bool m_coffeeHasTexCoords = false;
+    // Animación de cucharas
+    float m_coffeeAnimTimer = 0.0f;
+    float m_coffeeCyclePeriod = 8.0f; // duración total del ciclo (en segundos)
+    glm::mat4 m_coffeeSpoonExtraTransform = glm::mat4(1.0f);
+    void updateCoffeeAnimation(double deltaTime);
+    // Transformaciones individuales para cada cuchara
+    std::vector<glm::mat4> m_coffeeSpoonExtraTransforms;
 
     // Datos para las cartas
     GLuint m_cardsVAO = 0;

@@ -210,6 +210,7 @@ bool C3DViewer::setup()
     std::cout << "--- Iniciando carga de: OBJs/coffee/coffee.obj ---" << std::endl;
     m_coffeeSubmeshes.clear();
     loadOBJToMulti("OBJs/coffee/coffee.obj", m_coffeeSubmeshes, m_coffeeMinY, m_coffeeMaxY, m_coffeeHasTexCoords);
+    m_coffeeSpoonExtraTransforms.resize(2, glm::mat4(1.0f));
 
     // Carga de taza
     std::cout << "--- Iniciando carga de: OBJs/cup/cup.obj ---" << std::endl;
@@ -285,6 +286,7 @@ void C3DViewer::update() {
     // Actualizar animaciones de cartas y tetera
     updateCardsAnimation(deltaTime);
     updateTeapotAnimation(deltaTime);
+    updateCoffeeAnimation(deltaTime);
 
     // Cambio de modo de camara (caida del miniman si se pasa de GOD a FPS)
     if (globalUIState.cameraMode != m_prevCameraMode) {
@@ -537,7 +539,7 @@ void C3DViewer::render() {
             glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), Ks.r, Ks.g, Ks.b);
             glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), Ns);
 
-            // Texturas (si las tuviera)
+            // Texturas
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, sm.texDiffuse ? sm.texDiffuse : 0);
             glActiveTexture(GL_TEXTURE2);
@@ -654,40 +656,30 @@ void C3DViewer::render() {
         glDrawArrays(GL_TRIANGLES, 0, m_cardsVertexCount);
     }
 
-    // Coffee (dos tazas juntas)
-    //if (m_coffeeVertexCount > 0 && m_coffeeVAO != 0) {
-    //    glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
-    //    // Usar materiales leídos al cargar el OBJ (si están disponibles)
-    //    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), m_coffeeKa.r, m_coffeeKa.g, m_coffeeKa.b);
-    //    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), m_coffeeKd.r, m_coffeeKd.g, m_coffeeKd.b);
-    //    glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), m_coffeeKs.r, m_coffeeKs.g, m_coffeeKs.b);
-    //    glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), m_coffeeNs);
-
-    //    float coffeeHeightModel = (m_coffeeMaxY - m_coffeeMinY);
-    //    float coffeeScale = (coffeeHeightModel > 0.0001f) ? (tableHeight * 0.10f) / coffeeHeightModel : 1.0f;
-    //    float coffeeDisplacementY = -m_coffeeMinY * coffeeScale + tableHeight + 0.01f;
-
-    //    glm::mat4 coffeeModel1 = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, coffeeDisplacementY, tableHalfZ - 6.0f + 2.0f));
-    //    coffeeModel1 = glm::scale(coffeeModel1, glm::vec3(coffeeScale));
-    //    glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(coffeeModel1));
-    //    glBindTexture(GL_TEXTURE_2D, m_coffeeTexture);
-    //    glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (m_coffeeTexture != 0 && m_coffeeHasTexCoords) ? 1 : 0);
-    //    glBindVertexArray(m_coffeeVAO);
-    //    glDrawArrays(GL_TRIANGLES, 0, m_coffeeVertexCount);
-    //}
-    // Coffee (tazas de café) - con submallas
+    // Coffee (tazas de café)
     if (!m_coffeeSubmeshes.empty()) {
         glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
 
         float coffeeHeightModel = (m_coffeeMaxY - m_coffeeMinY);
-        float coffeeScale = (coffeeHeightModel > 0.0001f) ? (tableHeight * 0.10f) / coffeeHeightModel : 1.0f;
+        float coffeeScale = (coffeeHeightModel > 0.0001f) ? (tableHeight * 0.05f) / coffeeHeightModel : 1.0f;
         float coffeeDisplacementY = -m_coffeeMinY * coffeeScale + tableHeight + 0.01f;
 
-        glm::mat4 coffeeModelBase = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, coffeeDisplacementY, tableHalfZ - 6.0f + 2.0f));
+        glm::mat4 coffeeModelBase = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, coffeeDisplacementY, tableHalfZ - 6.0f + 1.0f));
         coffeeModelBase = glm::scale(coffeeModelBase, glm::vec3(coffeeScale));
 
+        int spoonIndex = 0;
         for (const auto& sm : m_coffeeSubmeshes) {
-            glm::mat4 model = coffeeModelBase; // misma transformación para todas las partes
+            glm::mat4 model = coffeeModelBase;
+
+            // Si es una cuchara (material 3), aplicamos la transformación extra
+            if (sm.materialId == 3) {
+                // Aplicar la transformación individual si el índice es válido
+                if (spoonIndex < m_coffeeSpoonExtraTransforms.size()) {
+                    model = model * m_coffeeSpoonExtraTransforms[spoonIndex];
+                }
+                spoonIndex++;
+            }
+
             glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
 
             // Coeficientes de material desde la submalla
@@ -1980,4 +1972,128 @@ void C3DViewer::updateTeapotAnimation(double deltaTime) {
     m_teapotExtraPos = targetExtraPos;
     m_teapotExtraPitch = targetExtraPitch;
     m_teapotExtraYaw = targetExtraYaw;
+}
+
+void C3DViewer::updateCoffeeAnimation(double deltaTime) {
+    // Duraciones de cada etapa (en segundos)
+    const float stageDurations[] = {
+        2.0f, // 0: levantar y desplazar
+        1.0f, // 1: inclinar
+        3.0f, // 2: batir
+        1.0f, // 3: desinclinar
+        2.0f  // 4: bajar y regresar
+    };
+    const int numStages = sizeof(stageDurations) / sizeof(float);
+    const float cycleTotal = 9.0f; // suma de las duraciones
+
+    m_coffeeAnimTimer += (float)deltaTime;
+    if (m_coffeeAnimTimer >= cycleTotal) {
+        m_coffeeAnimTimer = 0.0f;
+    }
+
+    // Determinar etapa actual
+    float elapsed = m_coffeeAnimTimer;
+    int stage = 0;
+    while (stage < numStages && elapsed > stageDurations[stage]) {
+        elapsed -= stageDurations[stage];
+        stage++;
+    }
+    if (stage >= numStages) stage = numStages - 1;
+    float progress = (stageDurations[stage] > 0.0f) ? elapsed / stageDurations[stage] : 0.0f;
+
+    // Parámetros de animación
+    const float maxLift = 0.4f;          // altura maxima
+    const float maxShiftLeftX = -0.5f;    // desplazamiento en X para la izquierda
+    const float maxShiftRightX = 0.3f;   // desplazamiento en X para la derecha
+    const float maxShiftZ = 0.2f;        // desplazamiento en Z
+    const float tiltAngle = glm::radians(90.0f); // ángulo de inclinacion
+
+    // Valores por defecto (sin transformación)
+    glm::vec3 leftPos(0.0f), rightPos(0.0f);
+    float leftRotZ = 0.0f, rightRotZ = 0.0f;
+    float leftRotY = 0.0f, rightRotY = 0.0f; // para rotación durante batido
+
+    switch (stage) {
+    case 0: // Levantar y desplazar
+    {
+        // Interpolación lineal de 0 a 1
+        leftPos = glm::vec3(maxShiftLeftX * progress, maxLift * progress, (-maxShiftZ*2) * progress);
+        rightPos = glm::vec3(maxShiftRightX * progress, maxLift * progress, maxShiftZ * progress);
+        break;
+    }
+    case 1: // Inclinar
+    {
+        // Mantener la posición máxima alcanzada en stage 0
+        leftPos = glm::vec3(maxShiftLeftX, maxLift, -maxShiftZ*2);
+        rightPos = glm::vec3(maxShiftRightX, maxLift, maxShiftZ);
+        // Rotación progresiva
+        leftRotZ = -tiltAngle * progress;
+        rightRotZ = tiltAngle * progress;
+        break;
+    }
+    case 2: // Batir (movimiento circular)
+    {
+        glm::vec3 centerLeft(maxShiftLeftX, maxLift, -maxShiftZ*2);
+        glm::vec3 centerRight(maxShiftRightX, maxLift, maxShiftZ);
+
+        float angle = progress * 2.0f * glm::pi<float>() * 2.0f; // 2 vueltas
+        float radius = 0.15f;
+        glm::vec3 offset(sin(angle) * radius, 0.0f, cos(angle) * radius);
+        leftPos = centerLeft + offset;
+        rightPos = centerRight + offset;
+
+        // Mantener la inclinación constante
+        leftRotZ = -tiltAngle;
+        rightRotZ = tiltAngle;
+        break;
+    }
+    case 3: // Desinclinar
+    {
+        float angle_end = 2.0f * glm::pi<float>() * 2.0f;
+        glm::vec3 offset_end(sin(angle_end) * 0.15f, 0.0f, cos(angle_end) * 0.15f);
+        glm::vec3 centerLeft(maxShiftLeftX, maxLift, -maxShiftZ*2);
+        glm::vec3 centerRight(maxShiftRightX, maxLift, maxShiftZ);
+        leftPos = centerLeft + offset_end;
+        rightPos = centerRight + offset_end;
+
+        // Desinclinacion: de tiltAngle a 0
+        leftRotZ = -tiltAngle * (1.0f - progress);
+        rightRotZ = tiltAngle * (1.0f - progress);
+        break;
+    }
+    case 4: // Bajar y regresar
+    {
+        float angle_end = 2.0f * glm::pi<float>() * 2.0f;
+        glm::vec3 offset_end(sin(angle_end) * 0.15f, 0.0f, cos(angle_end) * 0.15f);
+        glm::vec3 centerLeft(maxShiftLeftX, maxLift, -maxShiftZ*2);
+        glm::vec3 centerRight(maxShiftRightX, maxLift, maxShiftZ);
+        glm::vec3 leftEnd = centerLeft + offset_end;
+        glm::vec3 rightEnd = centerRight + offset_end;
+
+        // Interpolar hacia cero
+        leftPos = glm::mix(leftEnd, glm::vec3(0.0f), progress);
+        rightPos = glm::mix(rightEnd, glm::vec3(0.0f), progress);
+        // Rotacion vuelve a cero
+        leftRotZ = 0.0f;
+        rightRotZ = 0.0f;
+        break;
+    }
+    }
+
+    // Construccion de matrices: trasladar, luego rotar
+    glm::mat4 animLeft = glm::mat4(1.0f);
+    animLeft = glm::translate(animLeft, leftPos);
+    if (leftRotZ != 0.0f) animLeft = glm::rotate(animLeft, leftRotZ, glm::vec3(0, 0, 1));
+    if (leftRotY != 0.0f) animLeft = glm::rotate(animLeft, leftRotY, glm::vec3(0, 1, 0));
+
+    glm::mat4 animRight = glm::mat4(1.0f);
+    animRight = glm::translate(animRight, rightPos);
+    if (rightRotZ != 0.0f) animRight = glm::rotate(animRight, rightRotZ, glm::vec3(0, 0, 1));
+    if (rightRotY != 0.0f) animRight = glm::rotate(animRight, rightRotY, glm::vec3(0, 1, 0));
+
+    // Asignacion al vector
+    if (m_coffeeSpoonExtraTransforms.size() >= 2) {
+        m_coffeeSpoonExtraTransforms[0] = animLeft;
+        m_coffeeSpoonExtraTransforms[1] = animRight;
+    }
 }

@@ -1,13 +1,56 @@
 # MTL file - created by a modified js OBJExporter
 
-newmtl lambert2SG.001
+newmtl Coffee
 Tr 0.0000
 Tf 1.0000 1.0000 1.0000
 illum 1
-Pm 0.5
-Pr 0.5
+Pr 0.396921304318747
 Pds 1
 Pl 1
 Ka 1 1 1
 Kd 1 1 1
 Ke 0 0 0
+map_Kd Coffee.png
+map_Pm metalnessMap1.png
+map_Pr metalnessMap1.png
+norm normalMap1.png
+
+newmtl Cup_and_Plate
+Tr 0.0000
+Tf 1.0000 1.0000 1.0000
+illum 1
+Pm 0.0017100487021870384
+Pr 0.11723333880548918
+Pds 1
+Pl 1
+Ka 1 1 1
+Kd 1 1 1
+Ke 0 0 0
+map_Kd Cup_and_Plate.png
+
+newmtl Serviette
+Tr 0.0000
+Tf 1.0000 1.0000 1.0000
+illum 1
+Pr 1
+Pds 1
+Pl 1
+Ka 1 1 1
+Kd 1 1 1
+Ke 0 0 0
+map_Kd Serviette.png
+
+newmtl Spoon
+Tr 0.0000
+Tf 1.0000 1.0000 1.0000
+illum 1
+Pm 0.8894153305
+Pr 0.3
+Pds 1
+Pl 1
+Ka 1 1 1
+Kd 1 1 1
+Ke 0 0 0
+map_Kd Spoon.png
+map_Pm metalnessMap4.png
+map_Pr metalnessMap4.png
