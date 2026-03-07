@@ -32,7 +32,7 @@ private:
     // Métodos de carga
     void loadOBJ(const std::string& path);
     // Carga OBJ a una malla específica (no sobrescribe la mesa)
-    void loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVBO, size_t& outVertexCount, bool& outHasTexCoords, float& outMinY, float& outMaxY, GLuint* outTexture = nullptr);
+    void loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVBO, size_t& outVertexCount, bool& outHasTexCoords, float& outMinY, float& outMaxY, GLuint* outTexture = nullptr, glm::vec3* outKa = nullptr, glm::vec3* outKd = nullptr, glm::vec3* outKs = nullptr, float* outNs = nullptr);
     // Carga OBJ y genera submesh por cada shape (útil para objetos con submallas)
     // (declarada después de la definición de Submesh)
     unsigned int loadTexture(const char* path);
@@ -63,36 +63,7 @@ protected:
     int height = 720;
     GLFWwindow* m_window = nullptr;
 
-    // Datos para la mesa
-    GLuint m_tableVAO = 0;
-    GLuint m_tableVBO = 0;
-    size_t m_tableVertexCount = 0;
-    GLuint m_tableTexture = 0;
-    bool m_tableHasTexCoords = false;
-    float m_tableMinY;
-    float m_tableMaxY;
-    float m_tableMinX;
-    float m_tableMaxX;
-    float m_tableMinZ;
-    float m_tableMaxZ;
-
-    // Datos para la tetera
-    GLuint m_teapotVAO = 0;
-    GLuint m_teapotVBO = 0;
-    size_t m_teapotVertexCount = 0;
-    float m_teapotMinY, m_teapotMaxY;
-    GLuint m_teapotTexture = 0;
-    bool m_teapotHasTexCoords = false;
-    // Animación de la tetera
-    float m_teapotAnimTimer = 0.0f;
-    float m_teapotCyclePeriod = 40.0f;
-    int m_teapotAnimStage = 0;
-    glm::vec3 m_teapotExtraPos = glm::vec3(0.0f);
-    float m_teapotExtraYaw = 0.0f;
-    float m_teapotExtraPitch = 0.0f;
-    void updateTeapotAnimation(double deltaTime);
-
-    // Datos para el tazón de frutas
+    // Submallados
     struct Submesh {
         GLuint vao = 0;
         GLuint vbo = 0;
@@ -105,9 +76,43 @@ protected:
         float minY = 0.0f, maxY = 0.0f;
         bool isFruit = false;
         std::string name;
+        glm::vec3 Ka = glm::vec3(0.02f);   // ambiente (del MTL)
+        glm::vec3 Kd = glm::vec3(0.8f);    // difuso   (del MTL)
+        glm::vec3 Ks = glm::vec3(0.2f);    // especular (del MTL)
+        float Ns = 32.0f;                   // brillo    (del MTL)
     };
-    // Declaración ahora que Submesh está definida
+
     void loadOBJToMulti(const std::string& path, std::vector<Submesh>& outSubmeshes, float& outMinY, float& outMaxY, bool& outHasTexCoords);
+
+    // Datos para la mesa
+    GLuint m_tableVAO = 0;
+    GLuint m_tableVBO = 0;
+    size_t m_tableVertexCount = 0;
+    GLuint m_tableTexture = 0;
+    bool m_tableHasTexCoords = false;
+    float m_tableMinY;
+    float m_tableMaxY;
+    float m_tableMinX;
+    float m_tableMaxX;
+    float m_tableMinZ;
+    float m_tableMaxZ;
+    std::vector<Submesh> m_tableSubmeshes;
+
+    // Datos para la tetera
+    size_t m_teapotVertexCount = 0;
+    float m_teapotMinY, m_teapotMaxY;
+    bool m_teapotHasTexCoords = false;
+    std::vector<Submesh> m_teapotSubmeshes;
+    // Animación de la tetera
+    float m_teapotAnimTimer = 0.0f;
+    float m_teapotCyclePeriod = 40.0f;
+    int m_teapotAnimStage = 0;
+    glm::vec3 m_teapotExtraPos = glm::vec3(0.0f);
+    float m_teapotExtraYaw = 0.0f;
+    float m_teapotExtraPitch = 0.0f;
+    void updateTeapotAnimation(double deltaTime);
+    
+    // Datos para el bowl
     std::vector<Submesh> m_bowlSubmeshes;
     float m_bowlMinY = 0.0f, m_bowlMaxY = 0.0f;
     bool m_bowlHasTexCoords = false;
@@ -121,11 +126,9 @@ protected:
     bool m_cupHasTexCoords = false;
 
     // Datos para el café
-    GLuint m_coffeeVAO = 0;
-    GLuint m_coffeeVBO = 0;
     size_t m_coffeeVertexCount = 0;
+    std::vector<Submesh> m_coffeeSubmeshes;
     float m_coffeeMinY, m_coffeeMaxY;
-    GLuint m_coffeeTexture = 0;
     bool m_coffeeHasTexCoords = false;
 
     // Datos para las cartas
@@ -136,6 +139,7 @@ protected:
     GLuint m_cardsTexture = 0;
     bool m_cardsHasTexCoords = false;
     std::vector<Submesh> m_cardsSubmeshes;
+    std::vector<Submesh> m_cupSubmeshes;
     // Animación cartas
     float m_cardsAnimTimer = 0.0f;
     float m_cardsAnimPhase = 0.0f;
@@ -232,9 +236,17 @@ protected:
             }
 
             // AMBIENTE (contribución del skybox)
+            // vec3 skyColor = texture(skybox, norm).rgb;
+            // vec3 ambientMap = hasAmbientMap ? texture(texture_ambient, TexCoords).rgb : vec3(1.0);
+            // vec3 ambient = skyColor * 0.3 * baseColor * ambientMap;
+            vec3 ambient;
             vec3 skyColor = texture(skybox, norm).rgb;
             vec3 ambientMap = hasAmbientMap ? texture(texture_ambient, TexCoords).rgb : vec3(1.0);
-            vec3 ambient = skyColor * 0.3 * baseColor * ambientMap;
+            if (isReflective) {
+                ambient = skyColor * 0.3 * baseColor * ambientMap;
+            } else {
+                ambient = materialDiffuse * baseColor * 0.15;
+            }
 
             vec3 lightingSum = vec3(0.0);
 
