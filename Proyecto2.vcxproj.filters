@@ -48,6 +48,12 @@
     <ClCompile Include="src\Interface.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\Animations.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ModelLoader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Library Include="lib\glfw3.lib" />
@@ -63,6 +69,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\stb_image.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Animations.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ModelLoader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

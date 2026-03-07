@@ -144,17 +144,21 @@
     <ClCompile Include="include\imgui\imgui_draw.cpp" />
     <ClCompile Include="include\imgui\imgui_tables.cpp" />
     <ClCompile Include="include\imgui\imgui_widgets.cpp" />
+    <ClCompile Include="src\Animations.cpp" />
     <ClCompile Include="src\glad.c" />
     <ClCompile Include="src\Interface.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\3DViewer.cpp" />
+    <ClCompile Include="src\ModelLoader.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Library Include="lib\glfw3.lib" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\3DViewer.h" />
+    <ClInclude Include="src\Animations.h" />
     <ClInclude Include="src\Interface.h" />
+    <ClInclude Include="src\ModelLoader.h" />
     <ClInclude Include="src\stb_image.h" />
     <ClInclude Include="src\tiny_obj_loader.h" />
   </ItemGroup>
