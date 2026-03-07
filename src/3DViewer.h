@@ -32,7 +32,7 @@ private:
     // Métodos de carga
     void loadOBJ(const std::string& path);
     // Carga OBJ a una malla específica (no sobrescribe la mesa)
-    void loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVBO, size_t& outVertexCount, bool& outHasTexCoords, float& outMinY, float& outMaxY);
+    void loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVBO, size_t& outVertexCount, bool& outHasTexCoords, float& outMinY, float& outMaxY, GLuint* outTexture = nullptr);
     // Carga OBJ y genera submesh por cada shape (útil para objetos con submallas)
     // (declarada después de la definición de Submesh)
     unsigned int loadTexture(const char* path);

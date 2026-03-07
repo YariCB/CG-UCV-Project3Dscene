@@ -32,7 +32,7 @@ void DrawMainPanel(UIState& state) {
 
     // 3. Navegación
     if (ImGui::CollapsingHeader("Navigation / Camera")) {
-        ImGui::RadioButton("FPS Mode (Mini-man)", &state.cameraMode, 0);
+        ImGui::RadioButton("FPS Mode", &state.cameraMode, 0);
         ImGui::SameLine();
         ImGui::RadioButton("GOD Mode", &state.cameraMode, 1);
         ImGui::Text("Right-click for free movement");

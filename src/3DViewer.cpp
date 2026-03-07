@@ -129,6 +129,7 @@ bool C3DViewer::setup()
     if (!setupShader()) return false;
 
     // Mesa OBJ
+    std::cout << "--- Iniciando carga de: OBJs/table/table4.obj ---" << std::endl;
     loadOBJTo("OBJs/table/table4.obj", m_tableVAO, m_tableVBO, m_tableVertexCount, m_tableHasTexCoords, m_tableMinY, m_tableMaxY);
     // Extensión X/Z de la mesa para colocar objetos en los extremos
     {
@@ -164,50 +165,26 @@ bool C3DViewer::setup()
     if (m_tableTexture == 0) std::cout << "Warning: table texture not loaded (m_tableTexture==0)" << std::endl;
 
     // Carga de objetos sobre la mesa
+    std::cout << "--- Iniciando carga de: OBJs/teapot/teapot.obj ---" << std::endl;
     loadOBJTo("OBJs/teapot/teapot.obj", m_teapotVAO, m_teapotVBO, m_teapotVertexCount, m_teapotHasTexCoords, m_teapotMinY, m_teapotMaxY);
+    
+    // Carga de tazas de cafe
+    std::cout << "--- Iniciando carga de: OBJs/coffee/coffee.obj ---" << std::endl;
+    loadOBJTo("OBJs/coffee/coffee.obj", m_coffeeVAO, m_coffeeVBO, m_coffeeVertexCount, m_coffeeHasTexCoords, m_coffeeMinY, m_coffeeMaxY, &m_coffeeTexture);
 
-    // Cards: Cada carta es una submalla
-    m_cardsSubmeshes.clear();
-    loadOBJToMulti("OBJs/cards/cards.obj", m_cardsSubmeshes, m_cardsMinY, m_cardsMaxY, m_cardsHasTexCoords);
-    loadOBJTo("OBJs/coffee/coffee.obj", m_coffeeVAO, m_coffeeVBO, m_coffeeVertexCount, m_coffeeHasTexCoords, m_coffeeMinY, m_coffeeMaxY);
-    loadOBJTo("OBJs/cup/cup.obj", m_cupVAO, m_cupVBO, m_cupVertexCount, m_cupHasTexCoords, m_cupMinY, m_cupMaxY);
+    // Carga de taza
+    std::cout << "--- Iniciando carga de: OBJs/cup/cup.obj ---" << std::endl;
+    loadOBJTo("OBJs/cup/cup.obj", m_cupVAO, m_cupVBO, m_cupVertexCount, m_cupHasTexCoords, m_cupMinY, m_cupMaxY, &m_cupTexture);
 
     // Bowl: Cada fruta es una submalla
     m_bowlSubmeshes.clear();
     loadOBJToMulti("OBJs/fruits/bowlWithFruits.obj", m_bowlSubmeshes, m_bowlMinY, m_bowlMaxY, m_bowlHasTexCoords);
 
-    // Carga de texturas referenciadas en los MTL (si las hay)
-    { // Cards (torre de cartas)
-        tinyobj::attrib_t attrib; std::vector<tinyobj::shape_t> shapes; std::vector<tinyobj::material_t> materials; std::string warn, err;
-        std::string path = "OBJs/cards/cards.obj";
-        size_t pos = path.find_last_of("/\\"); std::string baseDir = (pos!=std::string::npos)? path.substr(0,pos+1) : std::string("");
-        if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str(), baseDir.c_str())) {
-            if (!materials.empty() && !materials[0].diffuse_texname.empty()) {
-                m_cardsTexture = loadTexture((baseDir + materials[0].diffuse_texname).c_str());
-            }
-        }
-    }
-    { // Coffee (dos tazas de café)
-        tinyobj::attrib_t attrib; std::vector<tinyobj::shape_t> shapes; std::vector<tinyobj::material_t> materials; std::string warn, err;
-        std::string path = "OBJs/coffee/coffee.obj";
-        size_t pos = path.find_last_of("/\\"); std::string baseDir = (pos!=std::string::npos)? path.substr(0,pos+1) : std::string("");
-        if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str(), baseDir.c_str())) {
-            if (!materials.empty() && !materials[0].diffuse_texname.empty()) {
-                m_coffeeTexture = loadTexture((baseDir + materials[0].diffuse_texname).c_str());
-            }
-        }
-    }
-    { // Cup (una taza)
-        tinyobj::attrib_t attrib; std::vector<tinyobj::shape_t> shapes; std::vector<tinyobj::material_t> materials; std::string warn, err;
-        std::string path = "OBJs/cup/cup.obj";
-        size_t pos = path.find_last_of("/\\"); std::string baseDir = (pos!=std::string::npos)? path.substr(0,pos+1) : std::string("");
-        if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str(), baseDir.c_str())) {
-            if (!materials.empty() && !materials[0].diffuse_texname.empty()) {
-                m_cupTexture = loadTexture((baseDir + materials[0].diffuse_texname).c_str());
-            }
-        }
-    }
-    // Las texturas de los submeshes del tazón se cargan al crear submeshes en loadOBJToMulti
+    // Cards: Cada carta es una submalla
+    std::cout << "--- Iniciando carga de: OBJs/cards/cards.obj ---" << std::endl;
+    m_cardsSubmeshes.clear();
+    loadOBJToMulti("OBJs/cards/cards.obj", m_cardsSubmeshes, m_cardsMinY, m_cardsMaxY, m_cardsHasTexCoords);
+
     if (!setupSimpleShader()) return false;
 
     // Enable seamless cubemap sampling to avoid seams
@@ -676,7 +653,7 @@ void C3DViewer::render() {
     if (m_cupVertexCount > 0 && m_cupVAO != 0) {
         glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.02f, 0.02f, 0.02f);
-        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.9f, 0.9f, 0.9f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.7f, 0.5f, 0.3f);
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.2f, 0.2f, 0.2f);
         glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 32.0f);
 
@@ -1106,7 +1083,7 @@ void C3DViewer::loadOBJ(const std::string& path) {
         return;
     }
 
-    std::cout << "--- Modelo cargado con exito ---" << std::endl;
+    std::cout << "Modelo cargado con exito (loadOBJ)" << std::endl;
     std::cout << "Vertices encontrados: " << attrib.vertices.size() / 3 << std::endl;
     std::cout << "Caras/Formas encontradas: " << shapes.size() << std::endl;
     std::cout << "Materiales cargados: " << materials.size() << std::endl;
@@ -1234,6 +1211,7 @@ unsigned int C3DViewer::loadTexture(const char* path) {
     glGenTextures(1, &textureID);
     int width, height, nrComponents;
     stbi_set_flip_vertically_on_load(true);
+    std::cout << "Intentando cargar textura desde: " << path << std::endl;
     unsigned char* data = stbi_load(path, &width, &height, &nrComponents, 0);
     std::cout << "Cargando textura: " << path << " -> " << (data ? "OK" : "FALLÓ") << std::endl;
     if (!data) {
@@ -1344,7 +1322,7 @@ unsigned int C3DViewer::loadCubemap(std::vector<std::string> faces) {
     return textureID;
 }
 
-void C3DViewer::loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVBO, size_t& outVertexCount, bool& outHasTexCoords, float& outMinY, float& outMaxY) {
+void C3DViewer::loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVBO, size_t& outVertexCount, bool& outHasTexCoords, float& outMinY, float& outMaxY, GLuint* outTexture) {
     tinyobj::attrib_t attrib;
     std::vector<tinyobj::shape_t> shapes;
     std::vector<tinyobj::material_t> materials;
@@ -1360,7 +1338,7 @@ void C3DViewer::loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVB
         return;
     }
 
-    std::cout << "--- Modelo cargado con exito ---" << std::endl;
+    std::cout << "Modelo cargado con exito (loadOBJTo)" << std::endl;
     std::cout << "Vertices encontrados: " << attrib.vertices.size() / 3 << std::endl;
     std::cout << "Caras/Formas encontradas: " << shapes.size() << std::endl;
     std::cout << "Materiales cargados: " << materials.size() << std::endl;
@@ -1398,6 +1376,14 @@ void C3DViewer::loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVB
     outVertexCount = vertices.size();
     outHasTexCoords = hasTexCoords;
 
+    // Si el modelo no tiene UVs, asignar un color sólido
+    if (!hasTexCoords) {
+        glm::vec3 coffeeColor = glm::vec3(0.9f, 0.8f, 0.7f); // tono crema/café
+        for (auto& v : vertices) {
+            v.Color = coffeeColor;
+        }
+    }
+
     float minY = std::numeric_limits<float>::max();
     float maxY = -std::numeric_limits<float>::max();
     for (const auto& v : vertices) {
@@ -1407,6 +1393,65 @@ void C3DViewer::loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVB
     outMinY = minY;
     outMaxY = maxY;
     std::cout << "Altura del OBJ: minY = " << minY << ", maxY = " << maxY << ", altura total = " << (maxY - minY) << std::endl;
+
+    // Si se solicita, intentar cargar la textura diffuse desde el material asociado
+    if (outTexture) {
+        *outTexture = 0;
+        if (!materials.empty()) {
+            int chosenMat = -1;
+            int bestCount = -1;
+            
+            // Primero, buscar materiales que tengan textura difusa
+            for (size_t i = 0; i < materials.size(); ++i) {
+                if (!materials[i].diffuse_texname.empty()) {
+                    // Contar cuántas caras usan este material (para elegir el más usado entre los texturizados)
+                    int count = 0;
+                    for (const auto &shape : shapes) {
+                        for (int mid : shape.mesh.material_ids) {
+                            if (mid == (int)i) count++;
+                        }
+                    }
+                    if (count > bestCount) {
+                        bestCount = count;
+                        chosenMat = i;
+                    }
+                }
+            }
+            
+            // Si no se encontró ningún material con textura, usar el material más frecuente en general
+            if (chosenMat == -1) {
+                std::unordered_map<int,int> counts;
+                for (const auto &shape : shapes) {
+                    for (int mid : shape.mesh.material_ids) counts[mid]++;
+                }
+                bestCount = -1;
+                for (auto &kv : counts) {
+                    if (kv.second > bestCount && kv.first >= 0) {
+                        bestCount = kv.second;
+                        chosenMat = kv.first;
+                    }
+                }
+                // Fallback al primer material
+                if (chosenMat == -1) chosenMat = 0;
+            }
+            
+            if (chosenMat >= 0 && chosenMat < (int)materials.size()) {
+                const auto &mat = materials[chosenMat];
+                if (!mat.diffuse_texname.empty()) {
+                    std::string texPath = baseDir + mat.diffuse_texname;
+                    GLuint tid = loadTexture(texPath.c_str());
+                    if (tid == 0) {
+                        std::cout << "Warning: failed to load diffuse texture '" << texPath << "' for OBJ '" << path << "'" << std::endl;
+                    } else {
+                        std::cout << "Loaded material diffuse for OBJ: " << texPath << std::endl;
+                        *outTexture = tid;
+                    }
+                } else {
+                    std::cout << "Material " << chosenMat << " has no diffuse texture." << std::endl;
+                }
+            }
+        }
+    }
 
     if (!hasNormals && outVertexCount >= 3) {
         for (size_t i = 0; i + 2 < vertices.size(); i += 3) {
@@ -1473,9 +1518,38 @@ void C3DViewer::loadOBJToMulti(const std::string& path, std::vector<Submesh>& ou
         return;
     }
 
+    std::cout << "Materiales cargados: " << materials.size() << std::endl;
+    for (size_t i = 0; i < materials.size(); ++i) {
+        std::cout << "  Material " << i << ": " << materials[i].name << " diffuse_tex: " << materials[i].diffuse_texname << std::endl;
+    }
+
     bool anyHasTex = false;
     float globalMinY = std::numeric_limits<float>::max();
     float globalMaxY = -std::numeric_limits<float>::max();
+
+    // Preload textures for each material (cache) to avoid repeated loads and to
+    // ensure paths are resolved consistently.
+    std::vector<GLuint> matAmbientTex(materials.size(), 0);
+    std::vector<GLuint> matDiffuseTex(materials.size(), 0);
+    std::vector<GLuint> matSpecularTex(materials.size(), 0);
+    for (size_t mi = 0; mi < materials.size(); ++mi) {
+        const auto &m = materials[mi];
+        if (!m.ambient_texname.empty()) {
+            std::string p = baseDir + m.ambient_texname;
+            matAmbientTex[mi] = loadTexture(p.c_str());
+            if (matAmbientTex[mi] == 0) std::cout << "Warning: failed to load ambient map '" << p << "' for material " << m.name << std::endl;
+        }
+        if (!m.diffuse_texname.empty()) {
+            std::string p = baseDir + m.diffuse_texname;
+            matDiffuseTex[mi] = loadTexture(p.c_str());
+            if (matDiffuseTex[mi] == 0) std::cout << "Warning: failed to load diffuse map '" << p << "' for material " << m.name << std::endl;
+        }
+        if (!m.specular_texname.empty()) {
+            std::string p = baseDir + m.specular_texname;
+            matSpecularTex[mi] = loadTexture(p.c_str());
+            if (matSpecularTex[mi] == 0) std::cout << "Warning: failed to load specular map '" << p << "' for material " << m.name << std::endl;
+        }
+    }
 
     for (size_t s = 0; s < shapes.size(); ++s) {
         const auto& shape = shapes[s];
@@ -1497,6 +1571,15 @@ void C3DViewer::loadOBJToMulti(const std::string& path, std::vector<Submesh>& ou
                 if (kv.second > bestCount) { best = kv.first; bestCount = kv.second; }
             }
             chosenMat = best;
+        }
+        // Si no hay material asignado, intentar usar el primer material con textura
+        if (chosenMat == -1 && !materials.empty()) {
+            for (size_t i = 0; i < materials.size(); ++i) {
+                if (!materials[i].diffuse_texname.empty()) {
+                    chosenMat = i;
+                    break;
+                }
+            }
         }
 
         // Construcción de vértices para esta forma
@@ -1548,6 +1631,22 @@ void C3DViewer::loadOBJToMulti(const std::string& path, std::vector<Submesh>& ou
             }
         }
 
+        // Si no hay material asignado, dar color por vértice a las cartas
+        if (chosenMat == -1) {
+            static const glm::vec3 cardColors[] = {
+                glm::vec3(1.0f, 0.8f, 0.8f), // rosa claro
+                glm::vec3(0.8f, 1.0f, 0.8f), // verde claro
+                glm::vec3(0.8f, 0.8f, 1.0f), // azul claro
+                glm::vec3(1.0f, 1.0f, 0.8f), // amarillo claro
+                glm::vec3(1.0f, 0.8f, 1.0f), // magenta claro
+                glm::vec3(0.8f, 1.0f, 1.0f), // cian claro
+            };
+            glm::vec3 color = cardColors[s % (sizeof(cardColors) / sizeof(cardColors[0]))];
+            for (auto& v : vertices) {
+                v.Color = color;
+            }
+        }
+
 		// Valor minY/max Y para esta forma
         float minY = std::numeric_limits<float>::max();
         float maxY = -std::numeric_limits<float>::max();
@@ -1580,20 +1679,23 @@ void C3DViewer::loadOBJToMulti(const std::string& path, std::vector<Submesh>& ou
         glEnableVertexAttribArray(3);
         glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, TexCoords));
 
-		// Cargar texturas del material asociado (si existe)
         if (chosenMat >= 0 && chosenMat < (int)materials.size()) {
-            const auto &mat = materials[chosenMat];
-            if (!mat.ambient_texname.empty()) {
-                sm.texAmbient = loadTexture((baseDir + mat.ambient_texname).c_str());
-            }
-            if (!mat.diffuse_texname.empty()) {
-                sm.texDiffuse = loadTexture((baseDir + mat.diffuse_texname).c_str());
-            }
-            if (!mat.specular_texname.empty()) {
-                sm.texSpecular = loadTexture((baseDir + mat.specular_texname).c_str());
+            sm.texAmbient = matAmbientTex[chosenMat];
+            sm.texDiffuse = matDiffuseTex[chosenMat];
+            sm.texSpecular = matSpecularTex[chosenMat];
+            if (sm.texDiffuse == 0 && sm.hasTexCoords) {
+                const auto &mat = materials[chosenMat];
+                if (!mat.diffuse_texname.empty()) {
+                    std::string p = baseDir + mat.diffuse_texname;
+                    sm.texDiffuse = loadTexture(p.c_str());
+                }
             }
         }
 
+        std::cout << "Submesh loaded: '" << sm.name << "' material=" << sm.materialId
+            << " hasTexCoords=" << (sm.hasTexCoords?"yes":"no")
+            << " texDiffuse=" << sm.texDiffuse << " texAmbient=" << sm.texAmbient
+            << " texSpecular=" << sm.texSpecular << std::endl;
         outSubmeshes.push_back(sm);
     }
 
