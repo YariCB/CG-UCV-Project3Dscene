@@ -38,18 +38,33 @@ void DrawMainPanel(UIState& state) {
         ImGui::Text("Right-click for free movement");
     }
 
-    // 4. Mapeos y Selección de Objetos (Group Box)
+    // 4. Mapeos, Selección de Objetos y Bump Mapping
     if (ImGui::CollapsingHeader("Objects and Textures")) {
-        const char* items[] = { "Cards", "Cards Tower", "Coffee cups", "Cup", "Fruit bowl", "Teapot", "Wooden table"};
-        ImGui::ListBox("Select Object", &state.selectedObj, items, 7);
+        
+        ImGui::Text("Parametric Surface - Bump Mapping:");
+        ImGui::BulletText("Diffuse: %s", state.diffuseFiles[state.currentDiffuseIndex]);
+        if (ImGui::Button("Next Diffuse Texture")) {
+            state.currentDiffuseIndex = (state.currentDiffuseIndex + 1) % 2; // Rota entre 0 y 1
+            state.updateTextures = true;
+        }
+        ImGui::Spacing();
+        ImGui::BulletText("Bump: %s", state.bumpFiles[state.currentBumpIndex]);
+        if (ImGui::Button("Next Bump Texture")) {
+            state.currentBumpIndex = (state.currentBumpIndex + 1) % 2; // Rota entre 0 y 1
+            state.updateTextures = true;
+        }
+        // Extra: Controlar que tan fuerte se ve el relieve
+        ImGui::SliderFloat("Bump Intensity", &state.bumpIntensity, 0.0f, 5.0f);
 
-        ImGui::Text("Surface Mapping:");
+        ImGui::Separator();
+        ImGui::Text("Textures Selection:");
+        const char* items[] = { "None", "Cards", "Cards Tower", "Coffee cups", "Cup", "Fruit bowl", "Teapot", "Wooden table", "Parametric Object" };
+        ImGui::ListBox("Select Object", &state.selectedObj, items, 9);
+
+        ImGui::Separator();
+        ImGui::Text("Mapping Controls:");
         ImGui::Combo("S-Mapping", &state.sMapping, "Spherical\0Cylindrical\0");
         ImGui::Combo("O-Mapping", &state.oMapping, "Plane\0Cubic\0");
-
-        if (ImGui::Button("Change Bump Texture")) {
-            // Lógica para el selector de archivos
-        }
     }
 
     ImGui::End();

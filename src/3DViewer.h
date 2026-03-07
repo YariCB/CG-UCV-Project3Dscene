@@ -154,6 +154,12 @@ protected:
     float m_cardsCyclePeriod = 8.0f;
     void updateCardsAnimation(double deltaTime);
 
+    // Para la esfera parametrica
+    GLuint m_paramSphereVAO = 0;
+    GLuint m_paramSphereVBO = 0;
+    GLuint m_paramSphereEBO = 0;
+    int m_paramSphereIndexCount = 0;
+
     GLuint m_shaderProgram = 0;
     double lastTime = 0.0;
 
@@ -439,5 +445,6 @@ protected:
     // Funciones para inicializar geometria
     void setupTable();
     void setupSphere();
+    void setupParamSphere();
     void setupSkybox();
 };

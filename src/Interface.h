@@ -16,6 +16,14 @@ struct UIState {
     int selectedObj = 0;
     int sMapping = 0;
     int oMapping = 0;
+    float bumpIntensity = 1.0f;
+    bool loadNewDiffuse = false;
+    bool loadNewBump = false;
+    const char* diffuseFiles[2] = { "xerxes.jpg", "chibiXerxes.jpg" };
+    const char* bumpFiles[2] = { "normalMapTexture.jpg", "normalMapTexture_2.jpg" };
+    int currentDiffuseIndex = 0;
+    int currentBumpIndex = 0;
+    bool updateTextures = false;
 };
 
 // Funciones de dibujo de la interfaz

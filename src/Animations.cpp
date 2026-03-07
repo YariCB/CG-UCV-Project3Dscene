@@ -17,7 +17,7 @@ void C3DViewer::updateCardsAnimation(double deltaTime) {
 
 // Animación de la tetera
 void C3DViewer::updateTeapotAnimation(double deltaTime) {
-    const float moveFactor = 0.32f; // Desplazamiento
+    const float moveFactor = 0.33f; // Desplazamiento
     const float targetYaw = glm::radians(-90.0f);
 
     m_teapotAnimTimer += (float)deltaTime;
@@ -65,8 +65,8 @@ void C3DViewer::updateTeapotAnimation(double deltaTime) {
     float teapotScale = (teapotHeightModel > 0.0001f) ? (tableHeight * 0.30f) / teapotHeightModel : 1.0f;
     float teapotBaseY = -m_teapotMinY * teapotScale + tableHeight + 0.02f;
 
-    const float liftHeight = 0.5f;        // cuánto se eleva
-    const float maxPitch = glm::radians(30.0f); // inclinación máxima
+    const float liftHeight = 1.0f;        // cuánto se eleva
+    const float maxPitch = glm::radians(45.0f); // inclinación máxima
 
     glm::vec3 targetExtraPos(0.0f);
     float targetExtraPitch = 0.0f;
@@ -128,10 +128,12 @@ void C3DViewer::updateCoffeeAnimation(double deltaTime) {
         1.0f, // 1: inclinar
         3.0f, // 2: batir
         1.0f, // 3: desinclinar
-        2.0f  // 4: bajar y regresar
+        2.0f, // 4: bajar y regresar
+		21.0f // 5: reposo
     };
     const int numStages = sizeof(stageDurations) / sizeof(float);
-    const float cycleTotal = 9.0f; // suma de las duraciones
+    float cycleTotal = 0.0f;
+    for (int i = 0; i < numStages; ++i) cycleTotal += stageDurations[i];
 
     m_coffeeAnimTimer += (float)deltaTime;
     if (m_coffeeAnimTimer >= cycleTotal) {
@@ -225,7 +227,15 @@ void C3DViewer::updateCoffeeAnimation(double deltaTime) {
         rightRotZ = 0.0f;
         break;
     }
-    }
+	case 5: // Reposo
+	{
+		leftPos = glm::vec3(0.0f);
+		rightPos = glm::vec3(0.0f);
+		leftRotZ = 0.0f;
+		rightRotZ = 0.0f;
+		break;
+	}
+	}
 
     // Construccion de matrices: trasladar, luego rotar
     glm::mat4 animLeft = glm::mat4(1.0f);

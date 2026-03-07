@@ -109,6 +109,10 @@ C3DViewer::~C3DViewer()
     if (m_sphereVBO) glDeleteBuffers(1, &m_sphereVBO);
     if (m_sphereEBO) glDeleteBuffers(1, &m_sphereEBO);
 
+    if (m_paramSphereVAO) glDeleteVertexArrays(1, &m_paramSphereVAO);
+    if (m_paramSphereVBO) glDeleteBuffers(1, &m_paramSphereVBO);
+    if (m_paramSphereEBO) glDeleteBuffers(1, &m_paramSphereEBO);
+
     glfwTerminate();
 }
 
@@ -249,6 +253,7 @@ bool C3DViewer::setup()
 
     setupSkybox();
     setupSphere();
+    setupParamSphere();
 
     glEnable(GL_DEPTH_TEST);
 
@@ -489,6 +494,12 @@ void C3DViewer::render() {
     float tableHalfX = ((m_tableMaxX - m_tableMinX) * 0.5f) * scale;
     float tableHalfZ = ((m_tableMaxZ - m_tableMinZ) * 0.5f) * scale;
 
+    // Cálculos globales del bowl de frutas
+    float bowlHeightModel = (m_bowlMaxY - m_bowlMinY);
+    float bowlScale = (bowlHeightModel > 0.0001f) ? (tableHeight * 0.15f) / bowlHeightModel : 1.0f;
+    float bowlDisplacementY = -m_bowlMinY * bowlScale + tableHeight + 0.01f;
+    glm::vec3 bowlCenter = glm::vec3(-tableHalfX + 6.0f, bowlDisplacementY, -4.0f);
+
     // --- Dibujo de la Mesa ---
     glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
     glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.35f, 0.35f, 0.35f);
@@ -711,10 +722,6 @@ void C3DViewer::render() {
         glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.2f, 0.2f, 0.2f);
         glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 32.0f);
 
-        float bowlHeightModel = (m_bowlMaxY - m_bowlMinY);
-        float bowlScale = (bowlHeightModel > 0.0001f) ? (tableHeight * 0.15f) / bowlHeightModel : 1.0f;
-        float bowlDisplacementY = -m_bowlMinY * bowlScale + tableHeight + 0.01f;
-
         glm::mat4 bowlModelBase = glm::translate(glm::mat4(1.0f), glm::vec3(-tableHalfX + 6.0f, bowlDisplacementY, -4.0f));
         bowlModelBase = glm::scale(bowlModelBase, glm::vec3(bowlScale));
 
@@ -788,6 +795,37 @@ void C3DViewer::render() {
             glBindVertexArray(sm.vao);
             glDrawArrays(GL_TRIANGLES, 0, sm.vertexCount);
         }
+    }
+
+    // --- Dibujo de la esfera paramétrica ---
+    if (m_paramSphereVAO != 0) {
+        glUseProgram(m_shaderProgram);
+        // Restaurar uniforms que puedan haber sido modificados por otros objetos
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0); // No reflectante
+        // Material: un color metálico o el que desees
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.1f, 0.1f, 0.1f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.8f, 0.2f, 0.2f); // rojizo
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 1.0f, 1.0f, 1.0f);
+        glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 64.0f);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), 0);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "hasAmbientMap"), 0);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "hasSpecularMap"), 0);
+
+        // Calcular posición: cerca del bowl
+        float sphereRadius = 2.0f; // Tamaño deseado (radio en unidades del mundo)
+        glm::vec3 bowlCenter = glm::vec3(-tableHalfX + 12.0f, bowlDisplacementY, 8.0f);
+        // Ajusta estos offsets para que quede donde quieras
+        glm::vec3 spherePos = bowlCenter + glm::vec3(3.0f, sphereRadius, 2.0f);
+        // Asegurar que la esfera se apoya en la mesa
+        spherePos.y = tableHeight + sphereRadius; // la base toca la mesa
+
+        glm::mat4 sphereModel = glm::translate(glm::mat4(1.0f), spherePos);
+        sphereModel = glm::scale(sphereModel, glm::vec3(sphereRadius)); // la malla es unitaria
+
+        glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(sphereModel));
+
+        glBindVertexArray(m_paramSphereVAO);
+        glDrawElements(GL_TRIANGLES, m_paramSphereIndexCount, GL_UNSIGNED_INT, 0);
     }
 
     // --- Dibujo de esferas de luz ---
@@ -1147,6 +1185,72 @@ void C3DViewer::setupSphere() {
     m_sphereIndexCount = indices.size();
 }
 
+void C3DViewer::setupParamSphere() {
+    const int stacks = 20, slices = 20;
+    const float radius = 1.0f;
+    std::vector<float> vertices;
+    std::vector<unsigned int> indices;
+
+    for (int i = 0; i <= stacks; ++i) {
+        float phi = i * glm::pi<float>() / stacks;          // 0 a pi
+        float sinPhi = sin(phi);
+        float cosPhi = cos(phi);
+        for (int j = 0; j <= slices; ++j) {
+            float theta = j * 2.0f * glm::pi<float>() / slices; // 0 a 2pi
+            float sinTheta = sin(theta);
+            float cosTheta = cos(theta);
+
+            // Posición
+            float x = radius * sinPhi * cosTheta;
+            float y = radius * cosPhi;
+            float z = radius * sinPhi * sinTheta;
+            vertices.push_back(x);
+            vertices.push_back(y);
+            vertices.push_back(z);
+
+            // Normal (es la misma que la posición para una esfera unitaria centrada en origen)
+            vertices.push_back(x);
+            vertices.push_back(y);
+            vertices.push_back(z);
+        }
+    }
+
+    // Índices para triángulos (igual que en setupSphere)
+    for (int i = 0; i < stacks; ++i) {
+        for (int j = 0; j < slices; ++j) {
+            int first = i * (slices + 1) + j;
+            int second = first + slices + 1;
+            indices.push_back(first);
+            indices.push_back(second);
+            indices.push_back(first + 1);
+            indices.push_back(second);
+            indices.push_back(second + 1);
+            indices.push_back(first + 1);
+        }
+    }
+
+    // Crear y llenar buffers
+    glGenVertexArrays(1, &m_paramSphereVAO);
+    glGenBuffers(1, &m_paramSphereVBO);
+    glGenBuffers(1, &m_paramSphereEBO);
+
+    glBindVertexArray(m_paramSphereVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_paramSphereVBO);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_paramSphereEBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
+
+    // Atributo 0: posición
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    // Atributo 1: normal
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    m_paramSphereIndexCount = indices.size();
+    glBindVertexArray(0);
+}
+
 bool C3DViewer::setupSimpleShader() {
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &skyboxVertexSrc, nullptr);
@@ -1187,141 +1291,4 @@ bool C3DViewer::setupSimpleShader() {
     glDeleteShader(vert);
     glDeleteShader(frag);
     return true;
-}
-
-// Carga de mesa OBJ
-void C3DViewer::loadOBJ(const std::string& path) {
-    tinyobj::attrib_t attrib;
-    std::vector<tinyobj::shape_t> shapes;
-    std::vector<tinyobj::material_t> materials;
-    std::string warn, err;
-
-    std::cout << "Intentando cargar modelo desde: " << path << std::endl;
-
-    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str(), "OBJs/table/")) {
-        std::cout << "Error cargando OBJ: " << err << std::endl;
-        return;
-    }
-
-    std::cout << "Modelo cargado con exito (loadOBJ)" << std::endl;
-    std::cout << "Vertices encontrados: " << attrib.vertices.size() / 3 << std::endl;
-    std::cout << "Caras/Formas encontradas: " << shapes.size() << std::endl;
-    std::cout << "Materiales cargados: " << materials.size() << std::endl;
-
-    std::vector<Vertex> vertices;
-    bool hasTexCoords = false;
-    bool hasNormals = false;
-    for (const auto& shape : shapes) {
-        for (const auto& index : shape.mesh.indices) {
-            Vertex vertex{};
-            vertex.Position = {
-                attrib.vertices[3 * index.vertex_index + 0],
-                attrib.vertices[3 * index.vertex_index + 1],
-                attrib.vertices[3 * index.vertex_index + 2]
-            };
-            if (index.normal_index >= 0) {
-                hasNormals = true;
-                vertex.Normal = {
-                    attrib.normals[3 * index.normal_index + 0],
-                    attrib.normals[3 * index.normal_index + 1],
-                    attrib.normals[3 * index.normal_index + 2]
-                };
-            }
-            if (index.texcoord_index >= 0) {
-                vertex.TexCoords = {
-                    attrib.texcoords[2 * index.texcoord_index + 0],
-                    attrib.texcoords[2 * index.texcoord_index + 1]
-                };
-                hasTexCoords = true;
-            }
-            // Por defecto asignamos color blanco (si el OBJ no trae color por vértice)
-            vertex.Color = glm::vec3(1.0f, 1.0f, 1.0f);
-            vertices.push_back(vertex);
-        }
-    }
-    m_tableVertexCount = vertices.size();
-    m_tableHasTexCoords = hasTexCoords;
-
-    // Calculo de los límites en Y
-    float minY = std::numeric_limits<float>::max();
-    float maxY = -std::numeric_limits<float>::max();
-    for (const auto& v : vertices) {
-        if (v.Position.y < minY) minY = v.Position.y;
-        if (v.Position.y > maxY) maxY = v.Position.y;
-    }
-        // Calculo de normales si el OBJ no las proporciona
-        if (!hasNormals && vertices.size() >= 3) {
-            for (size_t i = 0; i + 2 < vertices.size(); i += 3) {
-                glm::vec3 v0 = vertices[i + 0].Position;
-                glm::vec3 v1 = vertices[i + 1].Position;
-                glm::vec3 v2 = vertices[i + 2].Position;
-                glm::vec3 faceNormal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
-                if (glm::length(faceNormal) > 0.0001f) {
-                    vertices[i + 0].Normal += faceNormal;
-                    vertices[i + 1].Normal += faceNormal;
-                    vertices[i + 2].Normal += faceNormal;
-                }
-            }
-            for (size_t i = 0; i < vertices.size(); ++i) {
-                if (glm::length(vertices[i].Normal) > 0.0001f)
-                    vertices[i].Normal = glm::normalize(vertices[i].Normal);
-                else
-                    vertices[i].Normal = glm::vec3(0.0f, 1.0f, 0.0f);
-            }
-        }
-
-    // Creacion de búfer de GPU
-    m_tableMaxY = maxY;
-    std::cout << "Altura de la mesa: minY = " << minY << ", maxY = " << maxY << ", altura total = " << (maxY - minY) << std::endl;
-
-	// Calculo de vertices de normales si no se proporcionan en el OBJ
-    if (!hasNormals && m_tableVertexCount >= 3) {
-        for (size_t i = 0; i + 2 < vertices.size(); i += 3) {
-            glm::vec3 v0 = vertices[i + 0].Position;
-            glm::vec3 v1 = vertices[i + 1].Position;
-            glm::vec3 v2 = vertices[i + 2].Position;
-            glm::vec3 faceNormal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
-            if (glm::length(faceNormal) > 0.0f) {
-                vertices[i + 0].Normal += faceNormal;
-                vertices[i + 1].Normal += faceNormal;
-                vertices[i + 2].Normal += faceNormal;
-            }
-        }
-        for (size_t i = 0; i < vertices.size(); ++i) {
-            if (glm::length(vertices[i].Normal) > 0.0001f)
-                vertices[i].Normal = glm::normalize(vertices[i].Normal);
-            else
-                vertices[i].Normal = glm::vec3(0.0f, 1.0f, 0.0f);
-        }
-        std::cout << "Computed vertex normals for OBJ (was missing in file)." << std::endl;
-    }
-    if (m_tableHasTexCoords) {
-        std::cout << "OBJ contiene UVs. Primeros TexCoords: ";
-        if (!vertices.empty()) {
-            std::cout << vertices[0].TexCoords.x << "," << vertices[0].TexCoords.y << std::endl;
-        }
-    }
-    else {
-        std::cout << "OBJ no contiene UVs." << std::endl;
-    }
-    std::cout << "Vertices totales procesados para dibujo: " << m_tableVertexCount << std::endl;
-
-    glGenVertexArrays(1, &m_tableVAO);
-    glGenBuffers(1, &m_tableVBO);
-    glBindVertexArray(m_tableVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, m_tableVBO);
-    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
-
-    // Posicion
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
-    // Normales
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Normal));
-    // Color (default blanco para OBJ)
-    glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Color));
-    // UVs
-    glEnableVertexAttribArray(3);
-    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, TexCoords));
 }

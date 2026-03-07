@@ -447,3 +447,140 @@ void C3DViewer::loadOBJToMulti(const std::string& path, std::vector<Submesh>& ou
 
     std::cout << "Loaded multi-shape OBJ: shapes=" << outSubmeshes.size() << " globalMinY=" << outMinY << " globalMaxY=" << outMaxY << std::endl;
 }
+
+// Carga de mesa OBJ
+void C3DViewer::loadOBJ(const std::string& path) {
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warn, err;
+
+    std::cout << "Intentando cargar modelo desde: " << path << std::endl;
+
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str(), "OBJs/table/")) {
+        std::cout << "Error cargando OBJ: " << err << std::endl;
+        return;
+    }
+
+    std::cout << "Modelo cargado con exito (loadOBJ)" << std::endl;
+    std::cout << "Vertices encontrados: " << attrib.vertices.size() / 3 << std::endl;
+    std::cout << "Caras/Formas encontradas: " << shapes.size() << std::endl;
+    std::cout << "Materiales cargados: " << materials.size() << std::endl;
+
+    std::vector<Vertex> vertices;
+    bool hasTexCoords = false;
+    bool hasNormals = false;
+    for (const auto& shape : shapes) {
+        for (const auto& index : shape.mesh.indices) {
+            Vertex vertex{};
+            vertex.Position = {
+                attrib.vertices[3 * index.vertex_index + 0],
+                attrib.vertices[3 * index.vertex_index + 1],
+                attrib.vertices[3 * index.vertex_index + 2]
+            };
+            if (index.normal_index >= 0) {
+                hasNormals = true;
+                vertex.Normal = {
+                    attrib.normals[3 * index.normal_index + 0],
+                    attrib.normals[3 * index.normal_index + 1],
+                    attrib.normals[3 * index.normal_index + 2]
+                };
+            }
+            if (index.texcoord_index >= 0) {
+                vertex.TexCoords = {
+                    attrib.texcoords[2 * index.texcoord_index + 0],
+                    attrib.texcoords[2 * index.texcoord_index + 1]
+                };
+                hasTexCoords = true;
+            }
+            // Por defecto asignamos color blanco (si el OBJ no trae color por vértice)
+            vertex.Color = glm::vec3(1.0f, 1.0f, 1.0f);
+            vertices.push_back(vertex);
+        }
+    }
+    m_tableVertexCount = vertices.size();
+    m_tableHasTexCoords = hasTexCoords;
+
+    // Calculo de los límites en Y
+    float minY = std::numeric_limits<float>::max();
+    float maxY = -std::numeric_limits<float>::max();
+    for (const auto& v : vertices) {
+        if (v.Position.y < minY) minY = v.Position.y;
+        if (v.Position.y > maxY) maxY = v.Position.y;
+    }
+    // Calculo de normales si el OBJ no las proporciona
+    if (!hasNormals && vertices.size() >= 3) {
+        for (size_t i = 0; i + 2 < vertices.size(); i += 3) {
+            glm::vec3 v0 = vertices[i + 0].Position;
+            glm::vec3 v1 = vertices[i + 1].Position;
+            glm::vec3 v2 = vertices[i + 2].Position;
+            glm::vec3 faceNormal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+            if (glm::length(faceNormal) > 0.0001f) {
+                vertices[i + 0].Normal += faceNormal;
+                vertices[i + 1].Normal += faceNormal;
+                vertices[i + 2].Normal += faceNormal;
+            }
+        }
+        for (size_t i = 0; i < vertices.size(); ++i) {
+            if (glm::length(vertices[i].Normal) > 0.0001f)
+                vertices[i].Normal = glm::normalize(vertices[i].Normal);
+            else
+                vertices[i].Normal = glm::vec3(0.0f, 1.0f, 0.0f);
+        }
+    }
+
+    // Creacion de búfer de GPU
+    m_tableMaxY = maxY;
+    std::cout << "Altura de la mesa: minY = " << minY << ", maxY = " << maxY << ", altura total = " << (maxY - minY) << std::endl;
+
+    // Calculo de vertices de normales si no se proporcionan en el OBJ
+    if (!hasNormals && m_tableVertexCount >= 3) {
+        for (size_t i = 0; i + 2 < vertices.size(); i += 3) {
+            glm::vec3 v0 = vertices[i + 0].Position;
+            glm::vec3 v1 = vertices[i + 1].Position;
+            glm::vec3 v2 = vertices[i + 2].Position;
+            glm::vec3 faceNormal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+            if (glm::length(faceNormal) > 0.0f) {
+                vertices[i + 0].Normal += faceNormal;
+                vertices[i + 1].Normal += faceNormal;
+                vertices[i + 2].Normal += faceNormal;
+            }
+        }
+        for (size_t i = 0; i < vertices.size(); ++i) {
+            if (glm::length(vertices[i].Normal) > 0.0001f)
+                vertices[i].Normal = glm::normalize(vertices[i].Normal);
+            else
+                vertices[i].Normal = glm::vec3(0.0f, 1.0f, 0.0f);
+        }
+        std::cout << "Computed vertex normals for OBJ (was missing in file)." << std::endl;
+    }
+    if (m_tableHasTexCoords) {
+        std::cout << "OBJ contiene UVs. Primeros TexCoords: ";
+        if (!vertices.empty()) {
+            std::cout << vertices[0].TexCoords.x << "," << vertices[0].TexCoords.y << std::endl;
+        }
+    }
+    else {
+        std::cout << "OBJ no contiene UVs." << std::endl;
+    }
+    std::cout << "Vertices totales procesados para dibujo: " << m_tableVertexCount << std::endl;
+
+    glGenVertexArrays(1, &m_tableVAO);
+    glGenBuffers(1, &m_tableVBO);
+    glBindVertexArray(m_tableVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_tableVBO);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
+
+    // Posicion
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
+    // Normales
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Normal));
+    // Color (default blanco para OBJ)
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Color));
+    // UVs
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, TexCoords));
+}
