@@ -112,6 +112,8 @@ C3DViewer::~C3DViewer()
     if (m_paramSphereVAO) glDeleteVertexArrays(1, &m_paramSphereVAO);
     if (m_paramSphereVBO) glDeleteBuffers(1, &m_paramSphereVBO);
     if (m_paramSphereEBO) glDeleteBuffers(1, &m_paramSphereEBO);
+    if (m_sphereDiffuseTexture) glDeleteTextures(1, &m_sphereDiffuseTexture);
+    if (m_sphereBumpTexture) glDeleteTextures(1, &m_sphereBumpTexture);
 
     glfwTerminate();
 }
@@ -254,6 +256,9 @@ bool C3DViewer::setup()
     setupSkybox();
     setupSphere();
     setupParamSphere();
+    // Cargar texturas para la esfera paramétrica
+    m_sphereDiffuseTexture = loadTexture("OBJs/bumpMapping/xerxes.jpg");
+    m_sphereBumpTexture = loadTexture("OBJs/bumpMapping/normalMapTexture.jpg");
 
     glEnable(GL_DEPTH_TEST);
 
@@ -614,10 +619,15 @@ void C3DViewer::render() {
                 model = glm::rotate(model, tiltZ * collapseEase, glm::vec3(0, 0, 1));
             }
             else {
-                // --- Modo reconstrucción: pequeño rebote vertical ---
+                // Modo reconstrucción: pequeño rebote vertical
                 float bounce = (1.0f - collapseEase) * 0.01f * sin((float)tnow * 6.0f + (float)i);
                 model = glm::translate(model, glm::vec3(0.0f, bounce, 0.0f));
             }
+
+
+
+
+
 
             glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
 
@@ -629,15 +639,15 @@ void C3DViewer::render() {
             glActiveTexture(GL_TEXTURE3);
             glBindTexture(GL_TEXTURE_2D, sm.texSpecular);
 
-                // Aplicar coeficientes de material de la submalla (si los tiene)
-                glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), sm.Ka.r, sm.Ka.g, sm.Ka.b);
-                glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), sm.Kd.r, sm.Kd.g, sm.Kd.b);
-                glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), sm.Ks.r, sm.Ks.g, sm.Ks.b);
-                glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), sm.Ns);
+            // Aplicar coeficientes de material de la submalla (si los tiene)
+            glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), sm.Ka.r, sm.Ka.g, sm.Ka.b);
+            glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), sm.Kd.r, sm.Kd.g, sm.Kd.b);
+            glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), sm.Ks.r, sm.Ks.g, sm.Ks.b);
+            glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), sm.Ns);
 
-                glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (sm.texDiffuse != 0 && sm.hasTexCoords) ? 1 : 0);
-                glUniform1i(glGetUniformLocation(m_shaderProgram, "hasAmbientMap"), sm.texAmbient != 0 ? 1 : 0);
-                glUniform1i(glGetUniformLocation(m_shaderProgram, "hasSpecularMap"), sm.texSpecular != 0 ? 1 : 0);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (sm.texDiffuse != 0 && sm.hasTexCoords) ? 1 : 0);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "hasAmbientMap"), sm.texAmbient != 0 ? 1 : 0);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "hasSpecularMap"), sm.texSpecular != 0 ? 1 : 0);
 
             glBindVertexArray(sm.vao);
             glDrawArrays(GL_TRIANGLES, 0, sm.vertexCount);
@@ -797,36 +807,58 @@ void C3DViewer::render() {
         }
     }
 
-    // --- Dibujo de la esfera paramétrica ---
+    // Dibujo de la esfera paramétrica
+
+    if (globalUIState.updateTextures) {
+        // Recargar textura difusa
+        if (m_sphereDiffuseTexture) glDeleteTextures(1, &m_sphereDiffuseTexture);
+        std::string diffusePath = "OBJs/bumpMapping/" + std::string(globalUIState.diffuseFiles[globalUIState.currentDiffuseIndex]);
+        m_sphereDiffuseTexture = loadTexture(diffusePath.c_str());
+
+        // Recargar textura bump
+        if (m_sphereBumpTexture) glDeleteTextures(1, &m_sphereBumpTexture);
+        std::string bumpPath = "OBJs/bumpMapping/" + std::string(globalUIState.bumpFiles[globalUIState.currentBumpIndex]);
+        m_sphereBumpTexture = loadTexture(bumpPath.c_str());
+
+        globalUIState.updateTextures = false; // Resetear flag
+    }
+
     if (m_paramSphereVAO != 0) {
         glUseProgram(m_shaderProgram);
-        // Restaurar uniforms que puedan haber sido modificados por otros objetos
-        glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0); // No reflectante
-        // Material: un color metálico o el que desees
-        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.1f, 0.1f, 0.1f);
-        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.8f, 0.2f, 0.2f); // rojizo
-        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 1.0f, 1.0f, 1.0f);
-        glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 64.0f);
-        glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), 0);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
+        // Material: textura difusa
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.2f, 0.2f, 0.2f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 1.0f, 1.0f, 1.0f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.5f, 0.5f, 0.5f);
+        glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 32.0f);
+        // Activar textura difusa
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, m_sphereDiffuseTexture);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), 1);
+        // Desactivar mapas ambient y specular
         glUniform1i(glGetUniformLocation(m_shaderProgram, "hasAmbientMap"), 0);
         glUniform1i(glGetUniformLocation(m_shaderProgram, "hasSpecularMap"), 0);
+        // Configurar bump mapping
+        glActiveTexture(GL_TEXTURE4);
+        glBindTexture(GL_TEXTURE_2D, m_sphereBumpTexture);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "normalMap"), 4);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), globalUIState.useBumpMap ? 1 : 0);
+        glUniform1f(glGetUniformLocation(m_shaderProgram, "bumpIntensity"), globalUIState.bumpIntensity);
 
-        // Calcular posición: cerca del bowl
-        float sphereRadius = 2.0f; // Tamaño deseado (radio en unidades del mundo)
+        float sphereRadius = 2.0f;
         glm::vec3 bowlCenter = glm::vec3(-tableHalfX + 12.0f, bowlDisplacementY, 8.0f);
-        // Ajusta estos offsets para que quede donde quieras
         glm::vec3 spherePos = bowlCenter + glm::vec3(3.0f, sphereRadius, 2.0f);
-        // Asegurar que la esfera se apoya en la mesa
-        spherePos.y = tableHeight + sphereRadius; // la base toca la mesa
+        spherePos.y = tableHeight + sphereRadius;
 
         glm::mat4 sphereModel = glm::translate(glm::mat4(1.0f), spherePos);
-        sphereModel = glm::scale(sphereModel, glm::vec3(sphereRadius)); // la malla es unitaria
+        sphereModel = glm::scale(sphereModel, glm::vec3(sphereRadius));
 
         glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(sphereModel));
 
         glBindVertexArray(m_paramSphereVAO);
         glDrawElements(GL_TRIANGLES, m_paramSphereIndexCount, GL_UNSIGNED_INT, 0);
     }
+    glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), 0);
 
     // --- Dibujo de esferas de luz ---
     glUseProgram(m_lightShader);
@@ -912,6 +944,10 @@ bool C3DViewer::setupShader()
     if (locAmb >= 0) glUniform1i(locAmb, 2);
     GLint locSpec = glGetUniformLocation(m_shaderProgram, "texture_specular");
     if (locSpec >= 0) glUniform1i(locSpec, 3);
+    
+    GLint locNormalMap = glGetUniformLocation(m_shaderProgram, "normalMap");
+    if (locNormalMap >= 0) glUniform1i(locNormalMap, 4);
+
     return true;
 }
 
@@ -1185,6 +1221,82 @@ void C3DViewer::setupSphere() {
     m_sphereIndexCount = indices.size();
 }
 
+//void C3DViewer::setupParamSphere() {
+//    const int stacks = 20, slices = 20;
+//    const float radius = 1.0f;
+//    std::vector<float> vertices;
+//    std::vector<unsigned int> indices;
+//
+//    for (int i = 0; i <= stacks; ++i) {
+//        float phi = i * glm::pi<float>() / stacks; // 0 a pi
+//        float sinPhi = sin(phi);
+//        float cosPhi = cos(phi);
+//        float v = 1.0f - (float)i / stacks; // V coord (0 en el polo norte, 1 en el sur)
+//
+//        for (int j = 0; j <= slices; ++j) {
+//            float theta = j * 2.0f * glm::pi<float>() / slices; // 0 a 2pi
+//            float sinTheta = sin(theta);
+//            float cosTheta = cos(theta);
+//            float u = (float)j / slices; // U coord
+//
+//            // Posición
+//            float x = radius * sinPhi * cosTheta;
+//            float y = radius * cosPhi;
+//            float z = radius * sinPhi * sinTheta;
+//            vertices.push_back(x);
+//            vertices.push_back(y);
+//            vertices.push_back(z);
+//
+//            // Normal
+//            vertices.push_back(x / radius);
+//            vertices.push_back(y / radius);
+//            vertices.push_back(z / radius);
+//
+//            // Coordenadas de textura
+//            vertices.push_back(u);
+//            vertices.push_back(v);
+//        }
+//    }
+//
+//    // Índices para triángulos
+//    for (int i = 0; i < stacks; ++i) {
+//        for (int j = 0; j < slices; ++j) {
+//            int first = i * (slices + 1) + j;
+//            int second = first + slices + 1;
+//            indices.push_back(first);
+//            indices.push_back(second);
+//            indices.push_back(first + 1);
+//            indices.push_back(second);
+//            indices.push_back(second + 1);
+//            indices.push_back(first + 1);
+//        }
+//    }
+//
+//    // Crear y llenar buffers
+//    glGenVertexArrays(1, &m_paramSphereVAO);
+//    glGenBuffers(1, &m_paramSphereVBO);
+//    glGenBuffers(1, &m_paramSphereEBO);
+//
+//    glBindVertexArray(m_paramSphereVAO);
+//    glBindBuffer(GL_ARRAY_BUFFER, m_paramSphereVBO);
+//    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+//    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_paramSphereEBO);
+//    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
+//
+//    // Atributo 0: posición
+//    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+//    glEnableVertexAttribArray(0);
+//    // Atributo 1: normal
+//    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+//    glEnableVertexAttribArray(1);
+//    // Atributo 3: coordenadas de textura (layout 3 en el shader)
+//    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+//    glEnableVertexAttribArray(3);
+//
+//    m_paramSphereIndexCount = indices.size();
+//    glBindVertexArray(0);
+//}
+
 void C3DViewer::setupParamSphere() {
     const int stacks = 20, slices = 20;
     const float radius = 1.0f;
@@ -1192,13 +1304,16 @@ void C3DViewer::setupParamSphere() {
     std::vector<unsigned int> indices;
 
     for (int i = 0; i <= stacks; ++i) {
-        float phi = i * glm::pi<float>() / stacks;          // 0 a pi
+        float phi = i * glm::pi<float>() / stacks; // 0 a pi
         float sinPhi = sin(phi);
         float cosPhi = cos(phi);
+        float v = 1.0f - (float)i / stacks; // V coord (0 en polo norte, 1 en sur)
+
         for (int j = 0; j <= slices; ++j) {
             float theta = j * 2.0f * glm::pi<float>() / slices; // 0 a 2pi
             float sinTheta = sin(theta);
             float cosTheta = cos(theta);
+            float u = (float)j / slices; // U coord
 
             // Posición
             float x = radius * sinPhi * cosTheta;
@@ -1208,14 +1323,34 @@ void C3DViewer::setupParamSphere() {
             vertices.push_back(y);
             vertices.push_back(z);
 
-            // Normal (es la misma que la posición para una esfera unitaria centrada en origen)
-            vertices.push_back(x);
-            vertices.push_back(y);
-            vertices.push_back(z);
+            // Normal
+            vertices.push_back(x / radius);
+            vertices.push_back(y / radius);
+            vertices.push_back(z / radius);
+
+            // Tangente (derivada respecto a theta)
+            float tx = -sinPhi * sinTheta;
+            float ty = 0.0f;
+            float tz = sinPhi * cosTheta;
+            float lenT = sqrt(tx * tx + ty * ty + tz * tz);
+            if (lenT > 0.001f) {
+                tx /= lenT; ty /= lenT; tz /= lenT;
+            }
+            else {
+                // En los polos, dirección arbitraria
+                tx = 1.0f; ty = 0.0f; tz = 0.0f;
+            }
+            vertices.push_back(tx);
+            vertices.push_back(ty);
+            vertices.push_back(tz);
+
+            // Coordenadas de textura
+            vertices.push_back(u);
+            vertices.push_back(v);
         }
     }
 
-    // Índices para triángulos (igual que en setupSphere)
+    // Índices para triángulos (igual que antes)
     for (int i = 0; i < stacks; ++i) {
         for (int j = 0; j < slices; ++j) {
             int first = i * (slices + 1) + j;
@@ -1229,7 +1364,7 @@ void C3DViewer::setupParamSphere() {
         }
     }
 
-    // Crear y llenar buffers
+    // Crear buffers
     glGenVertexArrays(1, &m_paramSphereVAO);
     glGenBuffers(1, &m_paramSphereVBO);
     glGenBuffers(1, &m_paramSphereEBO);
@@ -1240,12 +1375,19 @@ void C3DViewer::setupParamSphere() {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_paramSphereEBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
 
-    // Atributo 0: posición
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    // Atributos
+    // Posición (location 0)
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
-    // Atributo 1: normal
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    // Normal (location 1)
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
+    // Tangente (location 4)
+    glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(6 * sizeof(float)));
+    glEnableVertexAttribArray(4);
+    // TexCoords (location 3)
+    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(9 * sizeof(float)));
+    glEnableVertexAttribArray(3);
 
     m_paramSphereIndexCount = indices.size();
     glBindVertexArray(0);

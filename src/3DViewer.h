@@ -159,6 +159,10 @@ protected:
     GLuint m_paramSphereVBO = 0;
     GLuint m_paramSphereEBO = 0;
     int m_paramSphereIndexCount = 0;
+    GLuint m_sphereDiffuseTexture = 0;
+    GLuint m_sphereBumpTexture = 0;
+    int m_sphereCurrentDiffuseIndex = 0;
+    int m_sphereCurrentBumpIndex = 0;
 
     GLuint m_shaderProgram = 0;
     double lastTime = 0.0;
@@ -172,29 +176,57 @@ protected:
     bool mouseButtonsDown[3] = { false, false, false };
     int m_sphereIndexCount = 0;
 
+    //const char* vertexShaderSrc = R"glsl(
+    //    #version 330 core
+    //    layout(location = 0) in vec3 aPos;
+    //    layout(location = 1) in vec3 aNormal;
+    //    layout(location = 2) in vec3 aColor;
+    //    layout(location = 3) in vec2 aTexCoords;
+
+    //    out vec3 FragPos;
+    //    out vec3 Normal;
+    //    out vec3 Color;
+    //    out vec2 TexCoords;
+
+    //    uniform mat4 model;
+    //    uniform mat4 view;
+    //    uniform mat4 projection;
+    //    uniform vec3 materialAmbient;
+    //    uniform vec3 materialDiffuse;
+    //    uniform vec3 materialSpecular;
+    //    uniform float materialShininess;
+
+    //    void main() {
+    //        FragPos = vec3(model * vec4(aPos, 1.0));
+    //        Normal = mat3(transpose(inverse(model))) * aNormal; // normal en mundo
+    //        TexCoords = aTexCoords;
+    //        Color = aColor;
+    //        gl_Position = projection * view * vec4(FragPos, 1.0);
+    //    }
+    //)glsl";
+
     const char* vertexShaderSrc = R"glsl(
         #version 330 core
         layout(location = 0) in vec3 aPos;
         layout(location = 1) in vec3 aNormal;
         layout(location = 2) in vec3 aColor;
         layout(location = 3) in vec2 aTexCoords;
+        layout(location = 4) in vec3 aTangent;
 
         out vec3 FragPos;
         out vec3 Normal;
+        out vec3 Tangent;
         out vec3 Color;
         out vec2 TexCoords;
 
         uniform mat4 model;
         uniform mat4 view;
         uniform mat4 projection;
-        uniform vec3 materialAmbient;
-        uniform vec3 materialDiffuse;
-        uniform vec3 materialSpecular;
-        uniform float materialShininess;
 
         void main() {
             FragPos = vec3(model * vec4(aPos, 1.0));
-            Normal = mat3(transpose(inverse(model))) * aNormal; // normal en mundo
+            Normal = mat3(transpose(inverse(model))) * aNormal;
+            Tangent = mat3(transpose(inverse(model))) * aTangent;
             TexCoords = aTexCoords;
             Color = aColor;
             gl_Position = projection * view * vec4(FragPos, 1.0);
@@ -207,6 +239,7 @@ protected:
         in vec3 Normal;
         in vec3 Color;
         in vec2 TexCoords;
+        in vec3 Tangent;
 
         out vec4 FragColor;
 
@@ -234,8 +267,27 @@ protected:
 
         uniform bool isReflective;
 
+        uniform sampler2D normalMap;
+        uniform bool useNormalMap;
+        uniform float bumpIntensity;
+
         void main() {
             vec3 norm = normalize(Normal);
+            if (useNormalMap) {
+                vec3 normalTex = texture(normalMap, TexCoords).rgb;
+                normalTex = normalTex * 2.0 - 1.0; // de [0,1] a [-1,1]
+                normalTex.xy *= bumpIntensity;
+                normalTex = normalize(normalTex);
+
+                vec3 N = normalize(Normal);
+                vec3 T = normalize(Tangent);
+                T = normalize(T - dot(T, N) * N); // Gram-Schmidt
+                vec3 B = cross(N, T);
+                mat3 TBN = mat3(T, B, N);
+
+                norm = normalize(TBN * normalTex);
+            }
+
             vec3 viewDir = normalize(viewPos - FragPos);
 
             // COLOR BASE
@@ -249,9 +301,6 @@ protected:
             }
 
             // AMBIENTE (contribución del skybox)
-            // vec3 skyColor = texture(skybox, norm).rgb;
-            // vec3 ambientMap = hasAmbientMap ? texture(texture_ambient, TexCoords).rgb : vec3(1.0);
-            // vec3 ambient = skyColor * 0.3 * baseColor * ambientMap;
             vec3 ambient;
             vec3 skyColor = texture(skybox, norm).rgb;
             vec3 ambientMap = hasAmbientMap ? texture(texture_ambient, TexCoords).rgb : vec3(1.0);
@@ -389,25 +438,19 @@ protected:
         out vec4 FragColor;
         uniform vec3 color;
         uniform vec3 viewPos;
-        // glow control: 0 = core, 1 = glow
         uniform int glowPass;
         uniform float glowIntensity;
-        uniform float glowFalloff; // larger -> tighter
+        uniform float glowFalloff;
         void main() {
             if (glowPass == 0) {
-                // Core pass: solid sphere color
                 FragColor = vec4(color, 1.0);
             } else {
-                // Glow pass: compute radial falloff in local sphere space
                 float r = length(LocalPos);
-                // Local sphere has radius ~1. Remap so edges (r near 1.0)
                 float edge = smoothstep(1.0, 1.0 - (0.5 / glowFalloff), r);
-                // Also add a rim by view angle for thin highlights
                 vec3 N = normalize(Normal);
                 vec3 V = normalize(viewPos - FragPos);
                 float rim = pow(1.0 - max(dot(N, V), 0.0), 2.0);
                 float alpha = (1.0 - edge) * glowIntensity * rim;
-                // output additive color (alpha used by blending)
                 FragColor = vec4(color * alpha, alpha);
             }
         }

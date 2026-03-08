@@ -24,6 +24,7 @@ struct UIState {
     int currentDiffuseIndex = 0;
     int currentBumpIndex = 0;
     bool updateTextures = false;
+    bool useBumpMap = false;
 };
 
 // Funciones de dibujo de la interfaz

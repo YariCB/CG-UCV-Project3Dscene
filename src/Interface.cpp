@@ -42,12 +42,14 @@ void DrawMainPanel(UIState& state) {
     if (ImGui::CollapsingHeader("Objects and Textures")) {
         
         ImGui::Text("Parametric Surface - Bump Mapping:");
+        ImGui::Text("Object: Parametric Sphere");
         ImGui::BulletText("Diffuse: %s", state.diffuseFiles[state.currentDiffuseIndex]);
         if (ImGui::Button("Next Diffuse Texture")) {
             state.currentDiffuseIndex = (state.currentDiffuseIndex + 1) % 2; // Rota entre 0 y 1
             state.updateTextures = true;
         }
         ImGui::Spacing();
+        ImGui::Checkbox("Enable Bump Mapping", &state.useBumpMap);
         ImGui::BulletText("Bump: %s", state.bumpFiles[state.currentBumpIndex]);
         if (ImGui::Button("Next Bump Texture")) {
             state.currentBumpIndex = (state.currentBumpIndex + 1) % 2; // Rota entre 0 y 1
