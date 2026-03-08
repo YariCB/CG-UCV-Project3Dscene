@@ -149,13 +149,12 @@ bool C3DViewer::setup()
     glFrontFace(GL_CCW);
     glEnable(GL_DEPTH_TEST);
 
+    // Inicializacion de ImGui
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;  // Opcional
-
     ImGui::StyleColorsDark();
-
     ImGui_ImplGlfw_InitForOpenGL(m_window, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");
 
@@ -166,12 +165,77 @@ bool C3DViewer::setup()
             ptr->resize(w, h);
         });
 
+    // -- Pantalla de Carga --
+
+    const char* stages[] = {
+        "Inicializando...",
+        "Cargando mesa...",
+        "Cargando textura de mesa...",
+        "Cargando tetera...",
+        "Cargando tazas de café...",
+        "Cargando taza...",
+        "Cargando bowl de frutas...",
+        "Cargando cartas...",
+        "Cargando skybox...",
+        "Cargando esfera paramétrica...",
+        "Finalizando..."
+    };
+    int totalStages = sizeof(stages) / sizeof(stages[0]);
+
+    // Funcion lambda para actualizar la pantalla de carga
+    auto updateLoadingScreen = [&](int stage, const char* message) {
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        // Ventana de carga centrada
+        ImGui::SetNextWindowPos(ImVec2(width / 2 - 200, height / 2 - 60), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(400, 120), ImGuiCond_Always);
+        ImGui::Begin("Cargando", nullptr,
+            ImGuiWindowFlags_NoTitleBar |
+            ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoSavedSettings);
+
+        ImGui::Text("Cargando escena 3D...");
+        ImGui::Spacing(); ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing(); ImGui::Spacing();
+        ImGui::Text("%s", message);
+
+        static float progress = 0.0f;
+        progress = fmodf(progress + 9.1f, 1.0f);
+        
+        // Color de la barra
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, IM_COL32(142, 109, 232, 255));
+        ImGui::ProgressBar(progress, ImVec2(380, 20), "Cargando...");
+        ImGui::PopStyleColor();
+
+        ImGui::End();
+
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        glfwSwapBuffers(m_window);
+        glfwPollEvents();
+    };
+
+    // Primera pantalla
+    int currentStage = 1;
+    updateLoadingScreen(currentStage, stages[currentStage - 1]);
+
+    // -- Carga de Recursos -- 
+
     // Setup shader
     if (!setupShader()) return false;
 
     // Mesa OBJ
     std::cout << "--- Iniciando carga de: OBJs/table/table4.obj ---" << std::endl;
     loadOBJTo("OBJs/table/table4.obj", m_tableVAO, m_tableVBO, m_tableVertexCount, m_tableHasTexCoords, m_tableMinY, m_tableMaxY);
+    currentStage++;
+    updateLoadingScreen(currentStage, stages[currentStage - 1]);
     // Extensión X/Z de la mesa para colocar objetos en los extremos
     {
         tinyobj::attrib_t attrib; std::vector<tinyobj::shape_t> shapes; std::vector<tinyobj::material_t> materials; std::string warn, err;
@@ -209,26 +273,36 @@ bool C3DViewer::setup()
     std::cout << "--- Iniciando carga de: OBJs/teapot/teapot.obj ---" << std::endl;
     m_teapotSubmeshes.clear();
     loadOBJToMulti("OBJs/teapot/teapot.obj", m_teapotSubmeshes, m_teapotMinY, m_teapotMaxY, m_teapotHasTexCoords);
-    
+    currentStage++;
+    updateLoadingScreen(currentStage, stages[currentStage - 1]);
+
     // Carga de tazas de cafe
     std::cout << "--- Iniciando carga de: OBJs/coffee/coffee.obj ---" << std::endl;
     m_coffeeSubmeshes.clear();
     loadOBJToMulti("OBJs/coffee/coffee.obj", m_coffeeSubmeshes, m_coffeeMinY, m_coffeeMaxY, m_coffeeHasTexCoords);
     m_coffeeSpoonExtraTransforms.resize(2, glm::mat4(1.0f));
+    currentStage++;
+    updateLoadingScreen(currentStage, stages[currentStage - 1]);
 
     // Carga de taza
     std::cout << "--- Iniciando carga de: OBJs/cup/cup.obj ---" << std::endl;
     m_cupSubmeshes.clear();
     loadOBJToMulti("OBJs/cup/cup.obj", m_cupSubmeshes, m_cupMinY, m_cupMaxY, m_cupHasTexCoords);
+    currentStage++;
+    updateLoadingScreen(currentStage, stages[currentStage - 1]);
 
     // Bowl: Cada fruta es una submalla
     m_bowlSubmeshes.clear();
     loadOBJToMulti("OBJs/fruits/bowlWithFruits.obj", m_bowlSubmeshes, m_bowlMinY, m_bowlMaxY, m_bowlHasTexCoords);
+    currentStage++;
+    updateLoadingScreen(currentStage, stages[currentStage - 1]);
 
     // Cards: Cada carta es una submalla
     std::cout << "--- Iniciando carga de: OBJs/cards/cards.obj ---" << std::endl;
     m_cardsSubmeshes.clear();
     loadOBJToMulti("OBJs/cards/cards.obj", m_cardsSubmeshes, m_cardsMinY, m_cardsMaxY, m_cardsHasTexCoords);
+    currentStage++;
+    updateLoadingScreen(currentStage, stages[currentStage - 1]);
 
     if (!setupSimpleShader()) return false;
 
@@ -252,18 +326,24 @@ bool C3DViewer::setup()
     };
 
     m_skyboxTexture = loadCubemap(faces);
+    currentStage++;
+    updateLoadingScreen(currentStage, stages[currentStage - 1]);
 
     setupSkybox();
     setupSphere();
     setupParamSphere();
+
     // Cargar texturas para la esfera paramétrica
     m_sphereDiffuseTexture = loadTexture("OBJs/bumpMapping/xerxes.jpg");
     m_sphereBumpTexture = loadTexture("OBJs/bumpMapping/normalMapTexture.jpg");
+    currentStage++;
+    updateLoadingScreen(currentStage, stages[currentStage - 1]);
 
     glEnable(GL_DEPTH_TEST);
 
     glViewport(0, 0, width, height);
 
+    // Configuracion de callbacks de entrada
     glfwSetWindowUserPointer(m_window, this);
     glfwSetKeyCallback(m_window, keyCallbackStatic);
     glfwSetMouseButtonCallback(m_window, mouseButtonCallbackStatic);
@@ -273,6 +353,10 @@ bool C3DViewer::setup()
     m_lastFrame = glfwGetTime();
     lastX = width / 2.0;
     lastY = height / 2.0;
+
+    // Mostrar mensaje final y pausa antes de iniciar escena
+    updateLoadingScreen(totalStages, "¡Listo! Iniciando...");
+    glfwWaitEventsTimeout(0.5);
 
     return true;
 }
