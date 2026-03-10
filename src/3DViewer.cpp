@@ -115,6 +115,9 @@ C3DViewer::~C3DViewer()
     if (m_sphereDiffuseTexture) glDeleteTextures(1, &m_sphereDiffuseTexture);
     if (m_sphereBumpTexture) glDeleteTextures(1, &m_sphereBumpTexture);
 
+    if (m_bboxVBO) glDeleteBuffers(1, &m_bboxVBO);
+    if (m_bboxVAO) glDeleteVertexArrays(1, &m_bboxVAO);
+
     glfwTerminate();
 }
 
@@ -233,7 +236,7 @@ bool C3DViewer::setup()
 
     // Mesa OBJ
     std::cout << "--- Iniciando carga de: OBJs/table/table4.obj ---" << std::endl;
-    loadOBJTo("OBJs/table/table4.obj", m_tableVAO, m_tableVBO, m_tableVertexCount, m_tableHasTexCoords, m_tableMinY, m_tableMaxY);
+    loadOBJTo("OBJs/table/table4.obj", m_tableVAO, m_tableVBO, m_tableVertexCount, m_tableHasTexCoords, m_tableMinY, m_tableMaxY, m_tableMinX, m_tableMaxX, m_tableMinZ, m_tableMaxZ);
     currentStage++;
     updateLoadingScreen(currentStage, stages[currentStage - 1]);
     // Extensión X/Z de la mesa para colocar objetos en los extremos
@@ -272,14 +275,14 @@ bool C3DViewer::setup()
     // Carga de tetera
     std::cout << "--- Iniciando carga de: OBJs/teapot/teapot.obj ---" << std::endl;
     m_teapotSubmeshes.clear();
-    loadOBJToMulti("OBJs/teapot/teapot.obj", m_teapotSubmeshes, m_teapotMinY, m_teapotMaxY, m_teapotHasTexCoords);
+    loadOBJToMulti("OBJs/teapot/teapot.obj", m_teapotSubmeshes, m_teapotMinY, m_teapotMaxY, m_teapotMinX, m_teapotMaxX, m_teapotMinZ, m_teapotMaxZ, m_teapotHasTexCoords);
     currentStage++;
     updateLoadingScreen(currentStage, stages[currentStage - 1]);
 
     // Carga de tazas de cafe
     std::cout << "--- Iniciando carga de: OBJs/coffee/coffee.obj ---" << std::endl;
     m_coffeeSubmeshes.clear();
-    loadOBJToMulti("OBJs/coffee/coffee.obj", m_coffeeSubmeshes, m_coffeeMinY, m_coffeeMaxY, m_coffeeHasTexCoords);
+    loadOBJToMulti("OBJs/coffee/coffee.obj", m_coffeeSubmeshes, m_coffeeMinY, m_coffeeMaxY, m_coffeeMinX, m_coffeeMaxX, m_coffeeMinZ, m_coffeeMaxZ, m_coffeeHasTexCoords);
     m_coffeeSpoonExtraTransforms.resize(2, glm::mat4(1.0f));
     currentStage++;
     updateLoadingScreen(currentStage, stages[currentStage - 1]);
@@ -287,24 +290,35 @@ bool C3DViewer::setup()
     // Carga de taza
     std::cout << "--- Iniciando carga de: OBJs/cup/cup.obj ---" << std::endl;
     m_cupSubmeshes.clear();
-    loadOBJToMulti("OBJs/cup/cup.obj", m_cupSubmeshes, m_cupMinY, m_cupMaxY, m_cupHasTexCoords);
+    loadOBJToMulti("OBJs/cup/cup.obj", m_cupSubmeshes, m_cupMinY, m_cupMaxY, m_cupMinX, m_cupMaxX, m_cupMinZ, m_cupMaxZ, m_cupHasTexCoords);
     currentStage++;
     updateLoadingScreen(currentStage, stages[currentStage - 1]);
 
     // Bowl: Cada fruta es una submalla
     m_bowlSubmeshes.clear();
-    loadOBJToMulti("OBJs/fruits/bowlWithFruits.obj", m_bowlSubmeshes, m_bowlMinY, m_bowlMaxY, m_bowlHasTexCoords);
+    loadOBJToMulti("OBJs/fruits/bowlWithFruits.obj", m_bowlSubmeshes, m_bowlMinY, m_bowlMaxY, m_bowlMinX, m_bowlMaxX, m_bowlMinZ, m_bowlMaxZ, m_bowlHasTexCoords);
     currentStage++;
     updateLoadingScreen(currentStage, stages[currentStage - 1]);
 
     // Cards: Cada carta es una submalla
     std::cout << "--- Iniciando carga de: OBJs/cards/cards.obj ---" << std::endl;
     m_cardsSubmeshes.clear();
-    loadOBJToMulti("OBJs/cards/cards.obj", m_cardsSubmeshes, m_cardsMinY, m_cardsMaxY, m_cardsHasTexCoords);
+    loadOBJToMulti("OBJs/cards/cards.obj", m_cardsSubmeshes, m_cardsMinY, m_cardsMaxY, m_cardsMinX, m_cardsMaxX, m_cardsMinZ, m_cardsMaxZ, m_cardsHasTexCoords);
     currentStage++;
     updateLoadingScreen(currentStage, stages[currentStage - 1]);
 
     if (!setupSimpleShader()) return false;
+
+    // Crear buffers para dibujar bounding boxes (lineas)
+    glGenVertexArrays(1, &m_bboxVAO);
+    glGenBuffers(1, &m_bboxVBO);
+    glBindVertexArray(m_bboxVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_bboxVBO);
+    // Reservar espacio para 24 vértices (12 aristas * 2) de vec3
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 3 * 24, nullptr, GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glBindVertexArray(0);
 
     // Enable seamless cubemap sampling to avoid seams
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
@@ -528,10 +542,72 @@ void C3DViewer::render() {
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // --- Configuración de cámara ---
+    // --- Configuración de camara ---
     glm::vec3 camPos = cameraPos;
     glm::mat4 view = glm::lookAt(camPos, camPos + cameraFront, cameraUp);
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)width / (float)height, 0.1f, 500.0f);
+
+    // Auxiliar para aplicar texturas segun objeto seleccionado
+    auto applySelectionAndBBox = [&](int objectIndex, const glm::mat4& modelMatrix, const glm::vec3& bboxMin, const glm::vec3& bboxMax) {
+        glUseProgram(m_shaderProgram);
+        GLint locTexGenMode = glGetUniformLocation(m_shaderProgram, "texGenMode");
+        GLint locS = glGetUniformLocation(m_shaderProgram, "sMapping");
+        GLint locO = glGetUniformLocation(m_shaderProgram, "oMapping");
+        GLint locMin = glGetUniformLocation(m_shaderProgram, "bboxMin");
+        GLint locMax = glGetUniformLocation(m_shaderProgram, "bboxMax");
+
+        if (globalUIState.selectedObj == objectIndex) {
+            glUniform1i(locTexGenMode, globalUIState.texGenMode);
+            glUniform1i(locS, globalUIState.sMapping);
+            glUniform1i(locO, globalUIState.oMapping);
+            glUniform3f(locMin, bboxMin.x, bboxMin.y, bboxMin.z);
+            glUniform3f(locMax, bboxMax.x, bboxMax.y, bboxMax.z);
+
+            // --- Dibujar bounding box ---
+            glm::vec3 corners[8] = {
+                glm::vec3(bboxMin.x, bboxMin.y, bboxMin.z),
+                glm::vec3(bboxMax.x, bboxMin.y, bboxMin.z),
+                glm::vec3(bboxMax.x, bboxMax.y, bboxMin.z),
+                glm::vec3(bboxMin.x, bboxMax.y, bboxMin.z),
+                glm::vec3(bboxMin.x, bboxMin.y, bboxMax.z),
+                glm::vec3(bboxMax.x, bboxMin.y, bboxMax.z),
+                glm::vec3(bboxMax.x, bboxMax.y, bboxMax.z),
+                glm::vec3(bboxMin.x, bboxMax.y, bboxMax.z)
+            };
+            int edges[24] = { 0,1, 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7 };
+            float pts[24 * 3];
+            for (int i = 0; i < 24; ++i) {
+                glm::vec4 w = modelMatrix * glm::vec4(corners[edges[i]], 1.0f);
+                pts[i * 3 + 0] = w.x;
+                pts[i * 3 + 1] = w.y;
+                pts[i * 3 + 2] = w.z;
+            }
+            glBindBuffer(GL_ARRAY_BUFFER, m_bboxVBO);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(pts), pts);
+
+            glUseProgram(m_lightShader);
+            glUniformMatrix4fv(glGetUniformLocation(m_lightShader, "view"), 1, GL_FALSE, glm::value_ptr(view));
+            glUniformMatrix4fv(glGetUniformLocation(m_lightShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+            glm::mat4 identity = glm::mat4(1.0f);
+            glUniformMatrix4fv(glGetUniformLocation(m_lightShader, "model"), 1, GL_FALSE, glm::value_ptr(identity));
+            glUniform3f(glGetUniformLocation(m_lightShader, "color"), 1.0f, 0.9f, 0.2f);
+            glBindVertexArray(m_bboxVAO);
+            glLineWidth(2.0f);
+            glDrawArrays(GL_LINES, 0, 24);
+            glLineWidth(1.0f);
+            glBindVertexArray(0);
+
+            // Restaurar shader principal
+            glUseProgram(m_shaderProgram);
+        }
+        else {
+            // Objetos no seleccionados usan coordenadas originales
+            glUniform1i(locTexGenMode, 0);
+            // Reseteo de uniforms
+            glUniform1i(locS, 0);
+            glUniform1i(locO, 0);
+        }
+    };
 
     // --- Dibujo de skybox ---
     glUseProgram(m_simpleShader);
@@ -601,6 +677,9 @@ void C3DViewer::render() {
     tableModel = glm::scale(tableModel, glm::vec3(scale));
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(tableModel));
 
+    // Apply mapping overrides / draw bbox if table is selected
+    applySelectionAndBBox((int)C3DViewer::OBJ_TABLE, tableModel, glm::vec3(m_tableMinX, m_tableMinY, m_tableMinZ), glm::vec3(m_tableMaxX, m_tableMaxY, m_tableMaxZ));
+
     glBindTexture(GL_TEXTURE_2D, m_tableTexture);
     glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (m_tableTexture != 0 && m_tableHasTexCoords) ? 1 : 0);
     glBindVertexArray(m_tableVAO);
@@ -620,6 +699,9 @@ void C3DViewer::render() {
         teapotModel = glm::translate(teapotModel, m_teapotExtraPos);
         teapotModel = glm::rotate(teapotModel, m_teapotExtraYaw, glm::vec3(0, 1, 0));
         teapotModel = glm::rotate(teapotModel, -m_teapotExtraPitch, glm::vec3(0, 0, 1));
+
+        // Apply mapping overrides / draw bbox if teapot is selected
+        applySelectionAndBBox((int)C3DViewer::OBJ_TEAPOT, teapotModel, glm::vec3(m_teapotMinX, m_teapotMinY, m_teapotMinZ), glm::vec3(m_teapotMaxX, m_teapotMaxY, m_teapotMaxZ));
 
         for (const auto& sm : m_teapotSubmeshes) {
             glm::mat4 model = teapotModel;
@@ -675,6 +757,9 @@ void C3DViewer::render() {
         float progress = m_cardsAnimPhase;
         float collapseEase = progress * progress * (3.0f - 2.0f * progress); // smoothstep
         double tnow = glfwGetTime();
+
+        // Apply mapping overrides / draw bbox if cards object is selected
+        applySelectionAndBBox((int)C3DViewer::OBJ_CARDS_TOWER, baseModel, glm::vec3(m_cardsMinX, m_cardsMinY, m_cardsMinZ), glm::vec3(m_cardsMaxX, m_cardsMaxY, m_cardsMaxZ));
 
         for (size_t i = 0; i < m_cardsSubmeshes.size(); ++i) {
             const auto& sm = m_cardsSubmeshes[i];
@@ -771,6 +856,8 @@ void C3DViewer::render() {
         coffeeModelBase = glm::scale(coffeeModelBase, glm::vec3(coffeeScale));
 
         int spoonIndex = 0;
+
+        applySelectionAndBBox((int)C3DViewer::OBJ_COFFEE, coffeeModelBase, glm::vec3(m_coffeeMinX, m_coffeeMinY, m_coffeeMinZ), glm::vec3(m_coffeeMaxX, m_coffeeMaxY, m_coffeeMaxZ));
         for (const auto& sm : m_coffeeSubmeshes) {
             glm::mat4 model = coffeeModelBase;
 
@@ -820,6 +907,8 @@ void C3DViewer::render() {
         bowlModelBase = glm::scale(bowlModelBase, glm::vec3(bowlScale));
 
         double tnow = glfwGetTime();
+
+        applySelectionAndBBox((int)C3DViewer::OBJ_BOWL, bowlModelBase, glm::vec3(m_bowlMinX, m_bowlMinY, m_bowlMinZ), glm::vec3(m_bowlMaxX, m_bowlMaxY, m_bowlMaxZ));
         for (size_t i = 0; i < m_bowlSubmeshes.size(); ++i) {
             const auto &sm = m_bowlSubmeshes[i];
             glm::mat4 model = bowlModelBase;
@@ -863,6 +952,7 @@ void C3DViewer::render() {
         glm::mat4 cupModelBase = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, cupDisplacementY, -tableHalfZ + 3.0f));
         cupModelBase = glm::scale(cupModelBase, glm::vec3(cupScale));
 
+        applySelectionAndBBox((int)C3DViewer::OBJ_CUP, cupModelBase, glm::vec3(m_cupMinX, m_cupMinY, m_cupMinZ), glm::vec3(m_cupMaxX, m_cupMaxY, m_cupMaxZ));
         for (size_t i = 0; i < m_cupSubmeshes.size(); ++i) {
             const auto &sm = m_cupSubmeshes[i];
             glm::mat4 model = cupModelBase; // misma transformación para todas las partes
@@ -936,6 +1026,9 @@ void C3DViewer::render() {
 
         glm::mat4 sphereModel = glm::translate(glm::mat4(1.0f), spherePos);
         sphereModel = glm::scale(sphereModel, glm::vec3(sphereRadius));
+
+        // Apply mapping overrides / draw bbox if param sphere is selected
+        applySelectionAndBBox((int)C3DViewer::OBJ_PARAM_SPHERE, sphereModel, glm::vec3(-1.0f, -1.0f, -1.0f), glm::vec3(1.0f, 1.0f, 1.0f));
 
         glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(sphereModel));
 

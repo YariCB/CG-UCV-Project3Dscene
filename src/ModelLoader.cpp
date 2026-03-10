@@ -157,7 +157,7 @@ unsigned int C3DViewer::loadCubemap(std::vector<std::string> faces) {
 }
 
 // Cargador de OBJ de malla única
-void C3DViewer::loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVBO, size_t& outVertexCount, bool& outHasTexCoords, float& outMinY, float& outMaxY, GLuint* outTexture, glm::vec3* outKa, glm::vec3* outKd, glm::vec3* outKs, float* outNs) {
+void C3DViewer::loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVBO, size_t& outVertexCount, bool& outHasTexCoords, float& outMinY, float& outMaxY, float& outMinX, float& outMaxX, float& outMinZ, float& outMaxZ, GLuint* outTexture, glm::vec3* outKa, glm::vec3* outKd, glm::vec3* outKs, float* outNs) {
     tinyobj::attrib_t attrib;
     std::vector<tinyobj::shape_t> shapes;
     std::vector<tinyobj::material_t> materials;
@@ -218,11 +218,19 @@ void C3DViewer::loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVB
 
     float minY = std::numeric_limits<float>::max();
     float maxY = -std::numeric_limits<float>::max();
+    float minX = std::numeric_limits<float>::max();
+    float maxX = -std::numeric_limits<float>::max();
+    float minZ = std::numeric_limits<float>::max();
+    float maxZ = -std::numeric_limits<float>::max();
     for (const auto& v : vertices) {
         if (v.Position.y < minY) minY = v.Position.y;
         if (v.Position.y > maxY) maxY = v.Position.y;
+        if (v.Position.x < minX) minX = v.Position.x;
+        if (v.Position.x > maxX) maxX = v.Position.x;
+        if (v.Position.z < minZ) minZ = v.Position.z;
+        if (v.Position.z > maxZ) maxZ = v.Position.z;
     }
-    outMinY = minY; outMaxY = maxY;
+    outMinY = minY; outMaxY = maxY; outMinX = minX; outMaxX = maxX; outMinZ = minZ; outMaxZ = maxZ;
     std::cout << "Altura del OBJ: minY = " << minY << ", maxY = " << maxY << ", altura total = " << (maxY - minY) << std::endl;
 
     if (outTexture) {
@@ -302,7 +310,7 @@ void C3DViewer::loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVB
 }
 
 // Cargador de OBJ de malla múltiple
-void C3DViewer::loadOBJToMulti(const std::string& path, std::vector<Submesh>& outSubmeshes, float& outMinY, float& outMaxY, bool& outHasTexCoords) {
+void C3DViewer::loadOBJToMulti(const std::string& path, std::vector<Submesh>& outSubmeshes, float& outMinY, float& outMaxY, float& outMinX, float& outMaxX, float& outMinZ, float& outMaxZ, bool& outHasTexCoords) {
     tinyobj::attrib_t attrib;
     std::vector<tinyobj::shape_t> shapes;
     std::vector<tinyobj::material_t> materials;
@@ -326,6 +334,10 @@ void C3DViewer::loadOBJToMulti(const std::string& path, std::vector<Submesh>& ou
     bool anyHasTex = false;
     float globalMinY = std::numeric_limits<float>::max();
     float globalMaxY = -std::numeric_limits<float>::max();
+    float globalMinX = std::numeric_limits<float>::max();
+    float globalMaxX = -std::numeric_limits<float>::max();
+    float globalMinZ = std::numeric_limits<float>::max();
+    float globalMaxZ = -std::numeric_limits<float>::max();
 
     std::vector<GLuint> matAmbientTex(materials.size(), 0);
     std::vector<GLuint> matDiffuseTex(materials.size(), 0);
@@ -408,9 +420,15 @@ void C3DViewer::loadOBJToMulti(const std::string& path, std::vector<Submesh>& ou
         }
 
         float minY = std::numeric_limits<float>::max(); float maxY = -std::numeric_limits<float>::max();
-        for (const auto &v : vertices) { if (v.Position.y < minY) minY = v.Position.y; if (v.Position.y > maxY) maxY = v.Position.y; }
+        float minX = std::numeric_limits<float>::max(); float maxX = -std::numeric_limits<float>::max();
+        float minZ = std::numeric_limits<float>::max(); float maxZ = -std::numeric_limits<float>::max();
+        for (const auto &v : vertices) { if (v.Position.y < minY) minY = v.Position.y; if (v.Position.y > maxY) maxY = v.Position.y; if (v.Position.x < minX) minX = v.Position.x; if (v.Position.x > maxX) maxX = v.Position.x; if (v.Position.z < minZ) minZ = v.Position.z; if (v.Position.z > maxZ) maxZ = v.Position.z; }
         if (minY < globalMinY) globalMinY = minY;
         if (maxY > globalMaxY) globalMaxY = maxY;
+        if (minX < globalMinX) globalMinX = minX;
+        if (maxX > globalMaxX) globalMaxX = maxX;
+        if (minZ < globalMinZ) globalMinZ = minZ;
+        if (maxZ > globalMaxZ) globalMaxZ = maxZ;
 
         Submesh sm;
         sm.vertexCount = vertices.size(); sm.hasTexCoords = hasTex; sm.minY = minY; sm.maxY = maxY; sm.materialId = chosenMat; sm.name = shape.name;
@@ -437,7 +455,7 @@ void C3DViewer::loadOBJToMulti(const std::string& path, std::vector<Submesh>& ou
         outSubmeshes.push_back(sm);
     }
 
-    outMinY = globalMinY; outMaxY = globalMaxY; outHasTexCoords = false; for (auto &s : outSubmeshes) if (s.hasTexCoords) { outHasTexCoords = true; break; }
+    outMinY = globalMinY; outMaxY = globalMaxY; outMinX = globalMinX; outMaxX = globalMaxX; outMinZ = globalMinZ; outMaxZ = globalMaxZ; outHasTexCoords = false; for (auto &s : outSubmeshes) if (s.hasTexCoords) { outHasTexCoords = true; break; }
 
     float totalHeight = outMaxY - outMinY;
     for (size_t i = 0; i < outSubmeshes.size(); ++i) {

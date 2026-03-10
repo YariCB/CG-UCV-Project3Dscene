@@ -32,7 +32,7 @@ private:
     // Métodos de carga
     void loadOBJ(const std::string& path);
     // Carga OBJ a una malla específica (no sobrescribe la mesa)
-    void loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVBO, size_t& outVertexCount, bool& outHasTexCoords, float& outMinY, float& outMaxY, GLuint* outTexture = nullptr, glm::vec3* outKa = nullptr, glm::vec3* outKd = nullptr, glm::vec3* outKs = nullptr, float* outNs = nullptr);
+    void loadOBJTo(const std::string& path, GLuint& outVAO, GLuint& outVBO, size_t& outVertexCount, bool& outHasTexCoords, float& outMinY, float& outMaxY, float& outMinX, float& outMaxX, float& outMinZ, float& outMaxZ, GLuint* outTexture = nullptr, glm::vec3* outKa = nullptr, glm::vec3* outKd = nullptr, glm::vec3* outKs = nullptr, float* outNs = nullptr);
     // Carga OBJ y genera submesh por cada shape (útil para objetos con submallas)
     // (declarada después de la definición de Submesh)
     unsigned int loadTexture(const char* path);
@@ -82,7 +82,7 @@ protected:
         float Ns = 32.0f;                   // brillo    (del MTL)
     };
 
-    void loadOBJToMulti(const std::string& path, std::vector<Submesh>& outSubmeshes, float& outMinY, float& outMaxY, bool& outHasTexCoords);
+    void loadOBJToMulti(const std::string& path, std::vector<Submesh>& outSubmeshes, float& outMinY, float& outMaxY, float& outMinX, float& outMaxX, float& outMinZ, float& outMaxZ, bool& outHasTexCoords);
 
     // Datos para la mesa
     GLuint m_tableVAO = 0;
@@ -101,6 +101,8 @@ protected:
     // Datos para la tetera
     size_t m_teapotVertexCount = 0;
     float m_teapotMinY, m_teapotMaxY;
+    float m_teapotMinX, m_teapotMaxX;
+    float m_teapotMinZ, m_teapotMaxZ;
     bool m_teapotHasTexCoords = false;
     std::vector<Submesh> m_teapotSubmeshes;
     // Animación de la tetera
@@ -115,6 +117,8 @@ protected:
     // Datos para el bowl
     std::vector<Submesh> m_bowlSubmeshes;
     float m_bowlMinY = 0.0f, m_bowlMaxY = 0.0f;
+    float m_bowlMinX = 0.0f, m_bowlMaxX = 0.0f;
+    float m_bowlMinZ = 0.0f, m_bowlMaxZ = 0.0f;
     bool m_bowlHasTexCoords = false;
 
     // Datos para la taza
@@ -122,6 +126,8 @@ protected:
     GLuint m_cupVBO = 0;
     size_t m_cupVertexCount = 0;
     float m_cupMinY, m_cupMaxY;
+    float m_cupMinX, m_cupMaxX;
+    float m_cupMinZ, m_cupMaxZ;
     GLuint m_cupTexture = 0;
     bool m_cupHasTexCoords = false;
 
@@ -129,6 +135,8 @@ protected:
     size_t m_coffeeVertexCount = 0;
     std::vector<Submesh> m_coffeeSubmeshes;
     float m_coffeeMinY, m_coffeeMaxY;
+    float m_coffeeMinX, m_coffeeMaxX;
+    float m_coffeeMinZ, m_coffeeMaxZ;
     bool m_coffeeHasTexCoords = false;
     // Animación de cucharas
     float m_coffeeAnimTimer = 0.0f;
@@ -143,6 +151,8 @@ protected:
     GLuint m_cardsVBO = 0;
     size_t m_cardsVertexCount = 0;
     float m_cardsMinY, m_cardsMaxY;
+    float m_cardsMinX, m_cardsMaxX;
+    float m_cardsMinZ, m_cardsMaxZ;
     GLuint m_cardsTexture = 0;
     bool m_cardsHasTexCoords = false;
     std::vector<Submesh> m_cardsSubmeshes;
@@ -173,8 +183,31 @@ protected:
     GLuint m_sphereVAO = 0, m_sphereVBO = 0, m_sphereEBO = 0;
     GLuint m_skyboxTexture = 0;
 
+    // Bounding box
+    GLuint m_bboxVAO = 0;
+    GLuint m_bboxVBO = 0;
+
     bool mouseButtonsDown[3] = { false, false, false };
     int m_sphereIndexCount = 0;
+
+    // Modos de mapeo
+    struct ObjectMapping {
+        int sMapping = 0; // 0: Spherical, 1: Cylindrical
+        int oMapping = 0; // 0: Plane, 1: Cubic
+    };
+    // Indices de objetos
+    enum ObjectIndex {
+        OBJ_NONE = 0,
+        OBJ_CARDS_TOWER,
+        OBJ_COFFEE,
+        OBJ_CUP,
+        OBJ_BOWL,
+        OBJ_TEAPOT,
+        OBJ_TABLE,
+        OBJ_PARAM_SPHERE,
+        OBJ_COUNT
+    };
+    std::vector<ObjectMapping> m_objectMappings;
 
     //const char* vertexShaderSrc = R"glsl(
     //    #version 330 core
@@ -182,29 +215,79 @@ protected:
     //    layout(location = 1) in vec3 aNormal;
     //    layout(location = 2) in vec3 aColor;
     //    layout(location = 3) in vec2 aTexCoords;
+    //    layout(location = 4) in vec3 aTangent;
 
     //    out vec3 FragPos;
     //    out vec3 Normal;
+    //    out vec3 Tangent;
     //    out vec3 Color;
     //    out vec2 TexCoords;
 
     //    uniform mat4 model;
     //    uniform mat4 view;
     //    uniform mat4 projection;
-    //    uniform vec3 materialAmbient;
-    //    uniform vec3 materialDiffuse;
-    //    uniform vec3 materialSpecular;
-    //    uniform float materialShininess;
+    //    // Texture generation overrides
+    //    uniform int overrideTexMapping; // 0: use vertex texcoords, 1: generate
+    //    uniform int sMapping; // 0: Spherical, 1: Cylindrical
+    //    uniform int oMapping; // 0: Plane, 1: Cubic
+    //    uniform vec3 bboxMin;
+    //    uniform vec3 bboxMax;
 
     //    void main() {
-    //        FragPos = vec3(model * vec4(aPos, 1.0));
-    //        Normal = mat3(transpose(inverse(model))) * aNormal; // normal en mundo
-    //        TexCoords = aTexCoords;
+    //        vec3 localPos = aPos;
+    //        FragPos = vec3(model * vec4(localPos, 1.0));
+    //        Normal = mat3(transpose(inverse(model))) * aNormal;
+    //        Tangent = mat3(transpose(inverse(model))) * aTangent;
     //        Color = aColor;
+    //        // Default texcoords from attribute
+    //        vec2 genTC = aTexCoords;
+    //        if (overrideTexMapping == 1) {
+    //            if (oMapping == 0) {
+    //                // Planar mapping (XZ -> u,v)
+    //                float u = (localPos.x - bboxMin.x) / max(0.0001, bboxMax.x - bboxMin.x);
+    //                float v = (localPos.z - bboxMin.z) / max(0.0001, bboxMax.z - bboxMin.z);
+    //                genTC = vec2(u, v);
+    //            } else {
+    //                // Cubic mapping: choose projection axis by normal
+    //                vec3 nModel = normalize(mat3(transpose(inverse(model))) * aNormal);
+    //                vec3 an = abs(nModel);
+    //                if (an.x >= an.y && an.x >= an.z) {
+    //                    // project on YZ
+    //                    float u = (localPos.z - bboxMin.z) / max(0.0001, bboxMax.z - bboxMin.z);
+    //                    float v = (localPos.y - bboxMin.y) / max(0.0001, bboxMax.y - bboxMin.y);
+    //                    genTC = vec2(u, v);
+    //                } else if (an.y >= an.x && an.y >= an.z) {
+    //                    // project on XZ
+    //                    float u = (localPos.x - bboxMin.x) / max(0.0001, bboxMax.x - bboxMin.x);
+    //                    float v = (localPos.z - bboxMin.z) / max(0.0001, bboxMax.z - bboxMin.z);
+    //                    genTC = vec2(u, v);
+    //                } else {
+    //                    // project on XY
+    //                    float u = (localPos.x - bboxMin.x) / max(0.0001, bboxMax.x - bboxMin.x);
+    //                    float v = (localPos.y - bboxMin.y) / max(0.0001, bboxMax.y - bboxMin.y);
+    //                    genTC = vec2(u, v);
+    //                }
+    //            }
+
+    //            // S-mapping choices (spherical or cylindrical) can override for continuous surfaces
+    //            if (sMapping == 0) {
+    //                // Spherical mapping
+    //                float r = length(localPos);
+    //                float u = 0.5 + atan(localPos.z, localPos.x) / (2.0 * 3.14159265359);
+    //                float v = 0.5 - asin(localPos.y / max(0.0001, r)) / 3.14159265359;
+    //                genTC = vec2(u, v);
+    //            } else if (sMapping == 1) {
+    //                // Cylindrical mapping
+    //                float u = 0.5 + atan(localPos.z, localPos.x) / (2.0 * 3.14159265359);
+    //                float v = (localPos.y - bboxMin.y) / max(0.0001, bboxMax.y - bboxMin.y);
+    //                genTC = vec2(u, v);
+    //            }
+    //        }
+
+    //        TexCoords = genTC;
     //        gl_Position = projection * view * vec4(FragPos, 1.0);
     //    }
     //)glsl";
-
     const char* vertexShaderSrc = R"glsl(
         #version 330 core
         layout(location = 0) in vec3 aPos;
@@ -223,12 +306,66 @@ protected:
         uniform mat4 view;
         uniform mat4 projection;
 
+        // Texture generation overrides
+        uniform int texGenMode; // 0: original, 1: O-Mapping, 2: S-Mapping
+        uniform int sMapping;   // 0: Spherical, 1: Cylindrical
+        uniform int oMapping;   // 0: Plane, 1: Cubic
+        uniform vec3 bboxMin;
+        uniform vec3 bboxMax;
+
         void main() {
-            FragPos = vec3(model * vec4(aPos, 1.0));
+            vec3 localPos = aPos;
+            FragPos = vec3(model * vec4(localPos, 1.0));
             Normal = mat3(transpose(inverse(model))) * aNormal;
             Tangent = mat3(transpose(inverse(model))) * aTangent;
-            TexCoords = aTexCoords;
             Color = aColor;
+
+            vec2 genTC = aTexCoords; // por defecto, las originales
+
+            if (texGenMode == 1) { // O-Mapping
+                if (oMapping == 0) {
+                    // Planar (XZ)
+                    float u = (localPos.x - bboxMin.x) / max(0.0001, bboxMax.x - bboxMin.x);
+                    float v = (localPos.z - bboxMin.z) / max(0.0001, bboxMax.z - bboxMin.z);
+                    genTC = vec2(u, v);
+                } else {
+                    // Cubic: elegir plano según la normal
+                    vec3 nModel = normalize(mat3(transpose(inverse(model))) * aNormal);
+                    vec3 an = abs(nModel);
+                    if (an.x >= an.y && an.x >= an.z) {
+                        // proyectar en YZ
+                        float u = (localPos.z - bboxMin.z) / max(0.0001, bboxMax.z - bboxMin.z);
+                        float v = (localPos.y - bboxMin.y) / max(0.0001, bboxMax.y - bboxMin.y);
+                        genTC = vec2(u, v);
+                    } else if (an.y >= an.x && an.y >= an.z) {
+                        // proyectar en XZ
+                        float u = (localPos.x - bboxMin.x) / max(0.0001, bboxMax.x - bboxMin.x);
+                        float v = (localPos.z - bboxMin.z) / max(0.0001, bboxMax.z - bboxMin.z);
+                        genTC = vec2(u, v);
+                    } else {
+                        // proyectar en XY
+                        float u = (localPos.x - bboxMin.x) / max(0.0001, bboxMax.x - bboxMin.x);
+                        float v = (localPos.y - bboxMin.y) / max(0.0001, bboxMax.y - bboxMin.y);
+                        genTC = vec2(u, v);
+                    }
+                }
+            } else if (texGenMode == 2) { // S-Mapping
+                if (sMapping == 0) {
+                    // Esférico
+                    float r = length(localPos);
+                    float u = 0.5 + atan(localPos.z, localPos.x) / (2.0 * 3.14159265359);
+                    float v = 0.5 - asin(localPos.y / max(0.0001, r)) / 3.14159265359;
+                    genTC = vec2(u, v);
+                } else {
+                    // Cilíndrico
+                    float u = 0.5 + atan(localPos.z, localPos.x) / (2.0 * 3.14159265359);
+                    float v = (localPos.y - bboxMin.y) / max(0.0001, bboxMax.y - bboxMin.y);
+                    genTC = vec2(u, v);
+                }
+            }
+            // Si texGenMode == 0, se mantienen las coordenadas originales
+
+            TexCoords = genTC;
             gl_Position = projection * view * vec4(FragPos, 1.0);
         }
     )glsl";

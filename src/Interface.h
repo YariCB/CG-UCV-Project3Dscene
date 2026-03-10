@@ -25,6 +25,7 @@ struct UIState {
     int currentBumpIndex = 0;
     bool updateTextures = false;
     bool useBumpMap = false;
+    int texGenMode = 0;
 };
 
 // Funciones de dibujo de la interfaz
