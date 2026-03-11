@@ -309,23 +309,39 @@ bool C3DViewer::setup()
 
     if (!setupSimpleShader()) return false;
 
-    // Crear buffers para dibujar bounding boxes (lineas)
+    // Buffers para dibujar bounding boxes (lineas)
     glGenVertexArrays(1, &m_bboxVAO);
     glGenBuffers(1, &m_bboxVBO);
     glBindVertexArray(m_bboxVAO);
     glBindBuffer(GL_ARRAY_BUFFER, m_bboxVBO);
-    // Reservar espacio para 24 vértices (12 aristas * 2) de vec3
+    // Espacio para 24 vértices (12 aristas * 2) de vec3
     glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 3 * 24, nullptr, GL_DYNAMIC_DRAW);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glBindVertexArray(0);
 
-    // Enable seamless cubemap sampling to avoid seams
+    // Activacion de cubemap
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 
+    glGenTextures(1, &m_reflectionCubemap);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_reflectionCubemap);
+    for (int i = 0; i < 6; ++i) {
+        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB, 512, 512, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+    }
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    // FBO para renderizar a la cubemap
+    glGenFramebuffers(1, &m_reflectionFBO);
+    // Depth buffer
+    glGenRenderbuffers(1, &m_reflectionDepthRB);
+    glBindRenderbuffer(GL_RENDERBUFFER, m_reflectionDepthRB);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, 512, 512);
+
     // Mesa y Skybox
-    // Si no se cargó un OBJ (m_tableVertexCount == 0) usamos el cubo de prueba;
-    // de lo contrario conservamos el VAO creado por loadOBJ().
     if (m_tableVertexCount == 0) {
         setupTable();
     }
@@ -542,7 +558,7 @@ void C3DViewer::render() {
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // --- Configuración de camara ---
+    // --- Configuracion de camara ---
     glm::vec3 camPos = cameraPos;
     glm::mat4 view = glm::lookAt(camPos, camPos + cameraFront, cameraUp);
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)width / (float)height, 0.1f, 500.0f);
@@ -607,7 +623,7 @@ void C3DViewer::render() {
             glUniform1i(locS, 0);
             glUniform1i(locO, 0);
         }
-    };
+        };
 
     // --- Dibujo de skybox ---
     glUseProgram(m_simpleShader);
@@ -628,7 +644,7 @@ void C3DViewer::render() {
     // --- Preparación de Objetos Iluminados ---
     glUseProgram(m_shaderProgram);
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, m_skyboxTexture); 
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_skyboxTexture);
     glUniform1i(glGetUniformLocation(m_shaderProgram, "skybox"), 1);
     glActiveTexture(GL_TEXTURE0);
 
@@ -653,20 +669,485 @@ void C3DViewer::render() {
         glUniform1i(glGetUniformLocation(m_shaderProgram, name), globalUIState.shadingModels[i]);
     }
 
-    // Cálculos globales de la mesa
-    float scale = 0.5f; 
+    // Calculos globales de la mesa
+    float scale = 0.5f;
     float tableHeight = scale * (m_tableMaxY - m_tableMinY);
     float tableHalfX = ((m_tableMaxX - m_tableMinX) * 0.5f) * scale;
     float tableHalfZ = ((m_tableMaxZ - m_tableMinZ) * 0.5f) * scale;
 
-    // Cálculos globales del bowl de frutas
+    // Calculos globales del bowl de frutas
     float bowlHeightModel = (m_bowlMaxY - m_bowlMinY);
     float bowlScale = (bowlHeightModel > 0.0001f) ? (tableHeight * 0.15f) / bowlHeightModel : 1.0f;
     float bowlDisplacementY = -m_bowlMinY * bowlScale + tableHeight + 0.01f;
     glm::vec3 bowlCenter = glm::vec3(-tableHalfX + 6.0f, bowlDisplacementY, -4.0f);
 
+    // Calculos globales de la tetera
+    glm::mat4 teapotModel = glm::mat4(1.0f);
+    if (!m_teapotSubmeshes.empty()) {
+        float teapotHeightModel = (m_teapotMaxY - m_teapotMinY);
+        float teapotScale = (teapotHeightModel > 0.0001f) ? (tableHeight * 0.30f) / teapotHeightModel : 1.0f;
+        float teapotDisplacementY = -m_teapotMinY * teapotScale + tableHeight + 0.02f;
+
+        teapotModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, teapotDisplacementY, 0.0f));
+        teapotModel = glm::scale(teapotModel, glm::vec3(teapotScale));
+        // Aplicar animación
+        teapotModel = glm::translate(teapotModel, m_teapotExtraPos);
+        teapotModel = glm::rotate(teapotModel, m_teapotExtraYaw, glm::vec3(0, 1, 0));
+        teapotModel = glm::rotate(teapotModel, -m_teapotExtraPitch, glm::vec3(0, 0, 1));
+    }
+
+    // --- Cubemap dinamico ---
+    // Guardado del estado actual del framebuffer y viewport
+    GLint prevFBO;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFBO);
+    GLint prevViewport[4];
+    glGetIntegerv(GL_VIEWPORT, prevViewport);
+
+    glm::vec3 teapotPos = glm::vec3(teapotModel[3]); // posición de la tetera en coordenadas mundo
+
+    // Configuracion de proyeccion para cubemap
+    glm::mat4 captureProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 500.0f);
+
+    // Matrices de vista para las 6 caras con orientación estándar de OpenGL
+    glm::mat4 captureViews[] = {
+        glm::lookAt(teapotPos, teapotPos + glm::vec3(1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)), // +X
+        glm::lookAt(teapotPos, teapotPos + glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)), // -X
+        glm::lookAt(teapotPos, teapotPos + glm::vec3(0.0f,  1.0f,  0.0f), glm::vec3(0.0f,  0.0f,  1.0f)), // +Y
+        glm::lookAt(teapotPos, teapotPos + glm::vec3(0.0f, -1.0f,  0.0f), glm::vec3(0.0f,  0.0f, -1.0f)), // -Y
+        glm::lookAt(teapotPos, teapotPos + glm::vec3(0.0f,  0.0f,  1.0f), glm::vec3(0.0f, -1.0f,  0.0f)), // +Z
+        glm::lookAt(teapotPos, teapotPos + glm::vec3(0.0f,  0.0f, -1.0f), glm::vec3(0.0f, -1.0f,  0.0f))  // -Z
+    };
+
+    glBindFramebuffer(GL_FRAMEBUFFER, m_reflectionFBO);
+    glViewport(0, 0, 512, 512); // Resolucion de la cubemap
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+
+    GLboolean wasCull = glIsEnabled(GL_CULL_FACE);
+    if (wasCull) glDisable(GL_CULL_FACE);
+
+    // Shader principal
+    glUseProgram(m_shaderProgram);
+
+    for (int i = 0; i < 6; ++i) {
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, m_reflectionCubemap, 0);
+        glDrawBuffer(GL_COLOR_ATTACHMENT0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_reflectionDepthRB);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            std::cerr << "ERROR: Framebuffer not complete for face " << i << std::endl;
+        }
+
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        // Configuracion de matrices de vista y proyección para esta cara
+        glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(captureViews[i]));
+        glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(captureProjection));
+        glUniform3fv(glGetUniformLocation(m_shaderProgram, "viewPos"), 1, &teapotPos[0]); // el observador está en la tetera
+
+        // Desactivacion de reflexion para todos los objetos en la captura
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
+        // Evitar aplicacion de mapeo especial
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "texGenMode"), 0);
+        // Reseteo de uniforms que pueden quedar activados de objetos anteriores
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), 0);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "hasAmbientMap"), 0);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "hasSpecularMap"), 0);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), 0);
+
+        // --- Dibujo de skybox para reflejo del entorno ---
+        glDepthFunc(GL_LEQUAL);
+        glDepthMask(GL_FALSE);
+        glUseProgram(m_simpleShader);
+        glm::mat4 skyViewCapture = glm::mat4(glm::mat3(captureViews[i]));
+        glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "view"), 1, GL_FALSE, glm::value_ptr(skyViewCapture));
+        glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "projection"), 1, GL_FALSE, glm::value_ptr(captureProjection));
+        glBindVertexArray(m_skyboxVAO);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, m_skyboxTexture);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glDepthMask(GL_TRUE);
+        glDepthFunc(GL_LESS);
+
+        // Restauracion del shader principal para dibujo del resto de objetos
+        glUseProgram(m_shaderProgram);
+        glEnable(GL_CULL_FACE);
+
+        // --- Dibujo de la Mesa ---
+        // Reseteo de uniforms específicos para la mesa
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), 0);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "hasAmbientMap"), 0);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "hasSpecularMap"), 0);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.35f, 0.35f, 0.35f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.8f, 0.8f, 0.8f);
+        glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.2f, 0.2f, 0.2f);
+        glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 16.0f);
+
+        float displacementY = -m_tableMinY * scale;
+        glm::mat4 tableModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, displacementY, 0.0f));
+        tableModel = glm::scale(tableModel, glm::vec3(scale));
+        glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(tableModel));
+
+        glBindTexture(GL_TEXTURE_2D, m_tableTexture);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (m_tableTexture != 0 && m_tableHasTexCoords) ? 1 : 0);
+        glBindVertexArray(m_tableVAO);
+        glDrawArrays(GL_TRIANGLES, 0, m_tableVertexCount);
+
+        // --- Dibujo de Objetos Sobre la Mesa ---
+
+        // Cards
+        if (!m_cardsSubmeshes.empty()) {
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
+            // Reseteo de uniforms que puedan estar activos
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), 0);
+            glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.05f, 0.05f, 0.05f);
+            glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.85f, 0.85f, 0.85f);
+            glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.2f, 0.2f, 0.2f);
+            glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 32.0f);
+
+            float cardHeightModel = (m_cardsMaxY - m_cardsMinY);
+            float cardScale = (cardHeightModel > 0.0001f) ? (tableHeight * 0.35f) / cardHeightModel : 1.0f;
+            float cardDisplacementY = -m_cardsMinY * cardScale + tableHeight + 0.01f;
+
+            glm::mat4 baseModel = glm::translate(glm::mat4(1.0f), glm::vec3(tableHalfX - 6.0f, cardDisplacementY, 0.0f));
+            baseModel = glm::rotate(baseModel, glm::radians(90.0f), glm::vec3(0, 1, 0));
+            baseModel = glm::scale(baseModel, glm::vec3(cardScale));
+
+            float progress = m_cardsAnimPhase;
+            float collapseEase = progress * progress * (3.0f - 2.0f * progress); // smoothstep
+            double tnow = glfwGetTime();
+
+            for (size_t j = 0; j < m_cardsSubmeshes.size(); ++j) {
+                const auto& sm = m_cardsSubmeshes[j];
+                glm::mat4 model = baseModel;
+
+                if (m_cardsCollapsed) {
+                    float maxX = tableHalfX * 0.04f;
+                    float maxZ = tableHalfZ * 0.04f;
+                    float spreadX = sin((float)j * 2.0f) * maxX;
+                    float spreadZ = cos((float)j * 3.0f) * maxZ;
+                    float rotY = (float)j * 1.5f;
+                    float tiltX = sin((float)j * 2.5f) * glm::radians(5.0f);
+                    float tiltZ = cos((float)j * 4.0f) * glm::radians(5.0f);
+                    model = glm::translate(model, glm::vec3(spreadX * collapseEase, 0.0f, spreadZ * collapseEase));
+                    model = glm::rotate(model, rotY * collapseEase, glm::vec3(0, 1, 0));
+                    model = glm::rotate(model, tiltX * collapseEase, glm::vec3(1, 0, 0));
+                    model = glm::rotate(model, tiltZ * collapseEase, glm::vec3(0, 0, 1));
+                }
+                else {
+                    float bounce = (1.0f - collapseEase) * 0.01f * sin((float)tnow * 6.0f + (float)j);
+                    model = glm::translate(model, glm::vec3(0.0f, bounce, 0.0f));
+                }
+
+                glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, sm.texDiffuse ? sm.texDiffuse : m_cardsTexture);
+                glActiveTexture(GL_TEXTURE2);
+                glBindTexture(GL_TEXTURE_2D, sm.texAmbient);
+                glActiveTexture(GL_TEXTURE3);
+                glBindTexture(GL_TEXTURE_2D, sm.texSpecular);
+
+                glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), sm.Ka.r, sm.Ka.g, sm.Ka.b);
+                glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), sm.Kd.r, sm.Kd.g, sm.Kd.b);
+                glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), sm.Ks.r, sm.Ks.g, sm.Ks.b);
+                glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), sm.Ns);
+
+                glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (sm.texDiffuse != 0 && sm.hasTexCoords) ? 1 : 0);
+                glUniform1i(glGetUniformLocation(m_shaderProgram, "hasAmbientMap"), sm.texAmbient != 0 ? 1 : 0);
+                glUniform1i(glGetUniformLocation(m_shaderProgram, "hasSpecularMap"), sm.texSpecular != 0 ? 1 : 0);
+                glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), 0);
+
+                glBindVertexArray(sm.vao);
+                glDrawArrays(GL_TRIANGLES, 0, sm.vertexCount);
+            }
+        }
+        else if (m_cardsVertexCount > 0 && m_cardsVAO != 0) {
+            // Fallback
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), 0);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "hasAmbientMap"), 0);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "hasSpecularMap"), 0);
+            glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.05f, 0.05f, 0.05f);
+            glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.85f, 0.85f, 0.85f);
+            glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.2f, 0.2f, 0.2f);
+            glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 32.0f);
+
+            float cardHeightModel = (m_cardsMaxY - m_cardsMinY);
+            float cardScale = (cardHeightModel > 0.0001f) ? (tableHeight * 0.35f) / cardHeightModel : 1.0f;
+            float cardDisplacementY = -m_cardsMinY * cardScale + tableHeight + 0.01f;
+
+            glm::mat4 cardModel = glm::translate(glm::mat4(1.0f), glm::vec3(tableHalfX - 6.0f, cardDisplacementY, 0.0f));
+            cardModel = glm::rotate(cardModel, glm::radians(90.0f), glm::vec3(0, 1, 0));
+            cardModel = glm::scale(cardModel, glm::vec3(cardScale));
+            glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(cardModel));
+            glBindTexture(GL_TEXTURE_2D, m_cardsTexture);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (m_cardsTexture != 0 && m_cardsHasTexCoords) ? 1 : 0);
+            glBindVertexArray(m_cardsVAO);
+            glDrawArrays(GL_TRIANGLES, 0, m_cardsVertexCount);
+        }
+
+        // Coffee (tazas de café)
+        if (!m_coffeeSubmeshes.empty()) {
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), 0); // CORRECIÓN
+
+            float coffeeHeightModel = (m_coffeeMaxY - m_coffeeMinY);
+            float coffeeScale = (coffeeHeightModel > 0.0001f) ? (tableHeight * 0.05f) / coffeeHeightModel : 1.0f;
+            float coffeeDisplacementY = -m_coffeeMinY * coffeeScale + tableHeight + 0.01f;
+
+            glm::mat4 coffeeModelBase = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, coffeeDisplacementY, tableHalfZ - 6.0f + 1.0f));
+            coffeeModelBase = glm::scale(coffeeModelBase, glm::vec3(coffeeScale));
+
+            int spoonIndex = 0;
+
+            for (const auto& sm : m_coffeeSubmeshes) {
+                glm::mat4 model = coffeeModelBase;
+
+                if (sm.materialId == 3) {
+                    if (spoonIndex < m_coffeeSpoonExtraTransforms.size()) {
+                        model = model * m_coffeeSpoonExtraTransforms[spoonIndex];
+                    }
+                    spoonIndex++;
+                }
+
+                glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+
+                glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), sm.Ka.r, sm.Ka.g, sm.Ka.b);
+                glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), sm.Kd.r, sm.Kd.g, sm.Kd.b);
+                glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), sm.Ks.r, sm.Ks.g, sm.Ks.b);
+                glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), sm.Ns);
+
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, sm.texDiffuse ? sm.texDiffuse : 0);
+                glActiveTexture(GL_TEXTURE2);
+                glBindTexture(GL_TEXTURE_2D, sm.texAmbient);
+                glActiveTexture(GL_TEXTURE3);
+                glBindTexture(GL_TEXTURE_2D, sm.texSpecular);
+
+                glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (sm.texDiffuse != 0 && sm.hasTexCoords) ? 1 : 0);
+                glUniform1i(glGetUniformLocation(m_shaderProgram, "hasAmbientMap"), sm.texAmbient != 0 ? 1 : 0);
+                glUniform1i(glGetUniformLocation(m_shaderProgram, "hasSpecularMap"), sm.texSpecular != 0 ? 1 : 0);
+                glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), 0); // CORRECIÓN
+
+                glBindVertexArray(sm.vao);
+                glDrawArrays(GL_TRIANGLES, 0, sm.vertexCount);
+            }
+        }
+
+        // Bowl de Frutas
+        if (!m_bowlSubmeshes.empty()) {
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), 0); // CORRECIÓN
+            glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.06f, 0.06f, 0.06f);
+            glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.95f, 0.95f, 0.95f);
+            glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.2f, 0.2f, 0.2f);
+            glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 32.0f);
+
+            glm::mat4 bowlModelBase = glm::translate(glm::mat4(1.0f), glm::vec3(-tableHalfX + 6.0f, bowlDisplacementY, -4.0f));
+            bowlModelBase = glm::scale(bowlModelBase, glm::vec3(bowlScale));
+
+            double tnow = glfwGetTime();
+
+            for (size_t j = 0; j < m_bowlSubmeshes.size(); ++j) {
+                const auto& sm = m_bowlSubmeshes[j];
+                glm::mat4 model = bowlModelBase;
+                if (sm.isFruit) {
+                    float rise = sin((float)tnow * 3.0f + (float)j) * 0.02f + 0.02f;
+                    model = glm::translate(model, glm::vec3(0.0f, rise, 0.0f));
+                    model = glm::rotate(model, sin((float)tnow * 1.5f + (float)j) * glm::radians(4.0f), glm::vec3(0, 0, 1));
+                }
+                glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, sm.texDiffuse);
+                glActiveTexture(GL_TEXTURE2);
+                glBindTexture(GL_TEXTURE_2D, sm.texAmbient);
+                glActiveTexture(GL_TEXTURE3);
+                glBindTexture(GL_TEXTURE_2D, sm.texSpecular);
+
+                glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), sm.Ka.r, sm.Ka.g, sm.Ka.b);
+                glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), sm.Kd.r, sm.Kd.g, sm.Kd.b);
+                glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), sm.Ks.r, sm.Ks.g, sm.Ks.b);
+                glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), sm.Ns);
+
+                glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (sm.texDiffuse != 0 && sm.hasTexCoords) ? 1 : 0);
+                glUniform1i(glGetUniformLocation(m_shaderProgram, "hasAmbientMap"), sm.texAmbient != 0 ? 1 : 0);
+                glUniform1i(glGetUniformLocation(m_shaderProgram, "hasSpecularMap"), sm.texSpecular != 0 ? 1 : 0);
+                glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), 0); // CORRECIÓN
+
+                glBindVertexArray(sm.vao);
+                glDrawArrays(GL_TRIANGLES, 0, sm.vertexCount);
+            }
+        }
+
+        // Cup (taza)
+        if (!m_cupSubmeshes.empty()) {
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), 0); // CORRECIÓN
+
+            float cupHeightModel = (m_cupMaxY - m_cupMinY);
+            float cupScale = (cupHeightModel > 0.0001f) ? (tableHeight * 0.12f) / cupHeightModel : 1.0f;
+            float cupDisplacementY = -m_cupMinY * cupScale + tableHeight + 0.01f;
+
+            glm::mat4 cupModelBase = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, cupDisplacementY, -tableHalfZ + 3.0f));
+            cupModelBase = glm::scale(cupModelBase, glm::vec3(cupScale));
+
+            for (size_t j = 0; j < m_cupSubmeshes.size(); ++j) {
+                const auto& sm = m_cupSubmeshes[j];
+                glm::mat4 model = cupModelBase;
+                glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+
+                glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), sm.Ka.r, sm.Ka.g, sm.Ka.b);
+                glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), sm.Kd.r, sm.Kd.g, sm.Kd.b);
+                glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), sm.Ks.r, sm.Ks.g, sm.Ks.b);
+                glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), sm.Ns);
+
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, sm.texDiffuse ? sm.texDiffuse : 0);
+                glActiveTexture(GL_TEXTURE2);
+                glBindTexture(GL_TEXTURE_2D, sm.texAmbient);
+                glActiveTexture(GL_TEXTURE3);
+                glBindTexture(GL_TEXTURE_2D, sm.texSpecular);
+
+                glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (sm.texDiffuse != 0 && sm.hasTexCoords) ? 1 : 0);
+                glUniform1i(glGetUniformLocation(m_shaderProgram, "hasAmbientMap"), sm.texAmbient != 0 ? 1 : 0);
+                glUniform1i(glGetUniformLocation(m_shaderProgram, "hasSpecularMap"), sm.texSpecular != 0 ? 1 : 0);
+                glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), 0); // CORRECIÓN
+
+                glBindVertexArray(sm.vao);
+                glDrawArrays(GL_TRIANGLES, 0, sm.vertexCount);
+            }
+        }
+
+        // Dibujo de la esfera paramétrica (si existe)
+        if (globalUIState.updateTextures) {
+            // Recargar textura difusa
+            if (m_sphereDiffuseTexture) glDeleteTextures(1, &m_sphereDiffuseTexture);
+            std::string diffusePath = "OBJs/bumpMapping/" + std::string(globalUIState.diffuseFiles[globalUIState.currentDiffuseIndex]);
+            m_sphereDiffuseTexture = loadTexture(diffusePath.c_str());
+
+            // Recargar textura bump
+            if (m_sphereBumpTexture) glDeleteTextures(1, &m_sphereBumpTexture);
+            std::string bumpPath = "OBJs/bumpMapping/" + std::string(globalUIState.bumpFiles[globalUIState.currentBumpIndex]);
+            m_sphereBumpTexture = loadTexture(bumpPath.c_str());
+
+            globalUIState.updateTextures = false;
+        }
+
+        if (m_paramSphereVAO != 0) {
+            glUseProgram(m_shaderProgram);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
+            // Material: textura difusa
+            glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.2f, 0.2f, 0.2f);
+            glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 1.0f, 1.0f, 1.0f);
+            glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.5f, 0.5f, 0.5f);
+            glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), 32.0f);
+            // Activar textura difusa
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, m_sphereDiffuseTexture);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), 1);
+            // Desactivar mapas ambient y specular
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "hasAmbientMap"), 0);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "hasSpecularMap"), 0);
+            // Configurar bump mapping
+            glActiveTexture(GL_TEXTURE4);
+            glBindTexture(GL_TEXTURE_2D, m_sphereBumpTexture);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "normalMap"), 4);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), globalUIState.useBumpMap ? 1 : 0);
+            glUniform1f(glGetUniformLocation(m_shaderProgram, "bumpIntensity"), globalUIState.bumpIntensity);
+
+            float sphereRadius = 2.0f;
+            glm::vec3 bowlCenter = glm::vec3(-tableHalfX + 12.0f, bowlDisplacementY, 8.0f);
+            glm::vec3 spherePos = bowlCenter + glm::vec3(3.0f, sphereRadius, 2.0f);
+            spherePos.y = tableHeight + sphereRadius;
+
+            glm::mat4 sphereModel = glm::translate(glm::mat4(1.0f), spherePos);
+            sphereModel = glm::scale(sphereModel, glm::vec3(sphereRadius));
+
+            glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(sphereModel));
+
+            glBindVertexArray(m_paramSphereVAO);
+            glDrawElements(GL_TRIANGLES, m_paramSphereIndexCount, GL_UNSIGNED_INT, 0);
+        }
+        // Desactivacion de normal mapping para no afecta objetos siguientes
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), 0);
+
+        // --- Dibujo de esferas de luz ---
+        glUseProgram(m_lightShader);
+        glUniformMatrix4fv(glGetUniformLocation(m_lightShader, "view"), 1, GL_FALSE, glm::value_ptr(captureViews[i]));
+        glUniformMatrix4fv(glGetUniformLocation(m_lightShader, "projection"), 1, GL_FALSE, glm::value_ptr(captureProjection));
+        glBindVertexArray(m_sphereVAO);
+        for (int j = 0; j < 3; j++) {
+            if (!globalUIState.lightEnabled[j]) continue;
+            glm::mat4 lModel = glm::translate(glm::mat4(1.0f), m_lightPos[j]);
+            lModel = glm::scale(lModel, glm::vec3(2.0f));
+            glUniformMatrix4fv(glGetUniformLocation(m_lightShader, "model"), 1, GL_FALSE, glm::value_ptr(lModel));
+            glUniform3fv(glGetUniformLocation(m_lightShader, "color"), 1, globalUIState.lightColors[j]);
+            glDrawElements(GL_TRIANGLES, m_sphereIndexCount, GL_UNSIGNED_INT, 0);
+        }
+
+        // Restauracion de shader principal para la siguiente cara
+        glUseProgram(m_shaderProgram);
+    }
+
+    // Generacion de mipmaps para la cubemap dinámica y asegurar filtros adecuados
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_reflectionCubemap);
+    glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+
+    // Restauracion de FBO y viewport para el render normal
+    glBindFramebuffer(GL_FRAMEBUFFER, prevFBO);
+    glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
+
+    // ---- Render normal (camara del usuario) ----
+
+    // --- Dibujo de skybox ---
+    glUseProgram(m_simpleShader);
+    glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "view"), 1, GL_FALSE, glm::value_ptr(skyView));
+    glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_FALSE);
+    glBindVertexArray(m_skyboxVAO);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_skyboxTexture);
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+    glDepthMask(GL_TRUE);
+    glDepthFunc(GL_LESS);
+
+    glEnable(GL_CULL_FACE);
+
+    // --- Objetos Iluminados ---
+    glUseProgram(m_shaderProgram);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_skyboxTexture);
+    glUniform1i(glGetUniformLocation(m_shaderProgram, "skybox"), 1);
+    glActiveTexture(GL_TEXTURE0);
+
+    glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+    glUniform3fv(glGetUniformLocation(m_shaderProgram, "viewPos"), 1, &camPos[0]);
+    glUniform1i(glGetUniformLocation(m_shaderProgram, "attenuationEnabled"), globalUIState.attenuation);
+
+    for (int i = 0; i < 3; i++) {
+        char name[64];
+        snprintf(name, sizeof(name), "lightPos[%d]", i);
+        glUniform3fv(glGetUniformLocation(m_shaderProgram, name), 1, &m_lightPos[i][0]);
+        snprintf(name, sizeof(name), "lightAmbient[%d]", i);
+        glUniform3fv(glGetUniformLocation(m_shaderProgram, name), 1, globalUIState.lightAmbient[i]);
+        snprintf(name, sizeof(name), "lightDiffuse[%d]", i);
+        glUniform3fv(glGetUniformLocation(m_shaderProgram, name), 1, globalUIState.lightColors[i]);
+        snprintf(name, sizeof(name), "lightSpecular[%d]", i);
+        glUniform3fv(glGetUniformLocation(m_shaderProgram, name), 1, globalUIState.lightSpecular[i]);
+        snprintf(name, sizeof(name), "lightEnabled[%d]", i);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, name), globalUIState.lightEnabled[i]);
+        snprintf(name, sizeof(name), "lightModel[%d]", i);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, name), globalUIState.shadingModels[i]);
+    }
+
     // --- Dibujo de la Mesa ---
     glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
+    // Reseteao de uniforms que puedan estar activos
+    glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), 0);
+    glUniform1i(glGetUniformLocation(m_shaderProgram, "hasAmbientMap"), 0);
+    glUniform1i(glGetUniformLocation(m_shaderProgram, "hasSpecularMap"), 0);
     glUniform3f(glGetUniformLocation(m_shaderProgram, "materialAmbient"), 0.35f, 0.35f, 0.35f);
     glUniform3f(glGetUniformLocation(m_shaderProgram, "materialDiffuse"), 0.8f, 0.8f, 0.8f);
     glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), 0.2f, 0.2f, 0.2f);
@@ -677,7 +1158,6 @@ void C3DViewer::render() {
     tableModel = glm::scale(tableModel, glm::vec3(scale));
     glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(tableModel));
 
-    // Apply mapping overrides / draw bbox if table is selected
     applySelectionAndBBox((int)C3DViewer::OBJ_TABLE, tableModel, glm::vec3(m_tableMinX, m_tableMinY, m_tableMinZ), glm::vec3(m_tableMaxX, m_tableMaxY, m_tableMaxZ));
 
     glBindTexture(GL_TEXTURE_2D, m_tableTexture);
@@ -685,30 +1165,31 @@ void C3DViewer::render() {
     glBindVertexArray(m_tableVAO);
     glDrawArrays(GL_TRIANGLES, 0, m_tableVertexCount);
 
-    // --- Dibujo de la Tetera ---
+    // --- Dibujo de la Tetera (con reflexión dinámica) ---
     if (!m_teapotSubmeshes.empty()) {
+        // Activar la cubemap dinámica en la unidad 5
+        glActiveTexture(GL_TEXTURE5);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, m_reflectionCubemap);
+        glUniform1i(glGetUniformLocation(m_shaderProgram, "reflectionMap"), 5);
+
+        GLint locUseDynamic = glGetUniformLocation(m_shaderProgram, "useDynamicReflection");
+        glUniform1i(locUseDynamic, 1);
+
         glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 1);
 
-        float teapotHeightModel = (m_teapotMaxY - m_teapotMinY);
-        float teapotScale = (teapotHeightModel > 0.0001f) ? (tableHeight * 0.30f) / teapotHeightModel : 1.0f;
-        float teapotDisplacementY = -m_teapotMinY * teapotScale + tableHeight + 0.02f;
+        // Misma transformacion de la captura
+        glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(teapotModel));
 
-        glm::mat4 teapotModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, teapotDisplacementY, 0.0f));
-        teapotModel = glm::scale(teapotModel, glm::vec3(teapotScale));
-        // Aplicar animación
-        teapotModel = glm::translate(teapotModel, m_teapotExtraPos);
-        teapotModel = glm::rotate(teapotModel, m_teapotExtraYaw, glm::vec3(0, 1, 0));
-        teapotModel = glm::rotate(teapotModel, -m_teapotExtraPitch, glm::vec3(0, 0, 1));
-
-        // Apply mapping overrides / draw bbox if teapot is selected
-        applySelectionAndBBox((int)C3DViewer::OBJ_TEAPOT, teapotModel, glm::vec3(m_teapotMinX, m_teapotMinY, m_teapotMinZ), glm::vec3(m_teapotMaxX, m_teapotMaxY, m_teapotMaxZ));
+        applySelectionAndBBox((int)C3DViewer::OBJ_TEAPOT, teapotModel,
+            glm::vec3(m_teapotMinX, m_teapotMinY, m_teapotMinZ),
+            glm::vec3(m_teapotMaxX, m_teapotMaxY, m_teapotMaxZ));
 
         for (const auto& sm : m_teapotSubmeshes) {
+            // Reseteo de uniforms por si acaso
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), 0);
             glm::mat4 model = teapotModel;
             glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
 
-            // Para la tetera, si los coeficientes son los por defecto (porque no tiene MTL),
-            // usamos valores metálicos. Si tiene MTL, respetamos los del archivo.
             glm::vec3 Ka = (sm.Ka != glm::vec3(0.02f)) ? sm.Ka : glm::vec3(0.02f);
             glm::vec3 Kd = (sm.Kd != glm::vec3(0.8f)) ? sm.Kd : glm::vec3(0.1f);
             glm::vec3 Ks = (sm.Ks != glm::vec3(0.2f)) ? sm.Ks : glm::vec3(1.0f);
@@ -719,7 +1200,6 @@ void C3DViewer::render() {
             glUniform3f(glGetUniformLocation(m_shaderProgram, "materialSpecular"), Ks.r, Ks.g, Ks.b);
             glUniform1f(glGetUniformLocation(m_shaderProgram, "materialShininess"), Ns);
 
-            // Texturas
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, sm.texDiffuse ? sm.texDiffuse : 0);
             glActiveTexture(GL_TEXTURE2);
@@ -727,17 +1207,25 @@ void C3DViewer::render() {
             glActiveTexture(GL_TEXTURE3);
             glBindTexture(GL_TEXTURE_2D, sm.texSpecular);
 
-            glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"), (sm.texDiffuse != 0 && sm.hasTexCoords) ? 1 : 0);
-            glUniform1i(glGetUniformLocation(m_shaderProgram, "hasAmbientMap"), sm.texAmbient != 0 ? 1 : 0);
-            glUniform1i(glGetUniformLocation(m_shaderProgram, "hasSpecularMap"), sm.texSpecular != 0 ? 1 : 0);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "useTexture"),
+                (sm.texDiffuse != 0 && sm.hasTexCoords) ? 1 : 0);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "hasAmbientMap"),
+                sm.texAmbient != 0 ? 1 : 0);
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "hasSpecularMap"),
+                sm.texSpecular != 0 ? 1 : 0);
 
             glBindVertexArray(sm.vao);
             glDrawArrays(GL_TRIANGLES, 0, sm.vertexCount);
         }
+
+        glUniform1i(locUseDynamic, 0);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, m_skyboxTexture);
+        glActiveTexture(GL_TEXTURE0);
     }
 
     // --- Dibujo de Objetos Sobre la Mesa ---
-    
+
     // Cards
     if (!m_cardsSubmeshes.empty()) {
         glUniform1i(glGetUniformLocation(m_shaderProgram, "isReflective"), 0);
@@ -758,7 +1246,6 @@ void C3DViewer::render() {
         float collapseEase = progress * progress * (3.0f - 2.0f * progress); // smoothstep
         double tnow = glfwGetTime();
 
-        // Apply mapping overrides / draw bbox if cards object is selected
         applySelectionAndBBox((int)C3DViewer::OBJ_CARDS_TOWER, baseModel, glm::vec3(m_cardsMinX, m_cardsMinY, m_cardsMinZ), glm::vec3(m_cardsMaxX, m_cardsMaxY, m_cardsMaxZ));
 
         for (size_t i = 0; i < m_cardsSubmeshes.size(); ++i) {
@@ -792,11 +1279,6 @@ void C3DViewer::render() {
                 float bounce = (1.0f - collapseEase) * 0.01f * sin((float)tnow * 6.0f + (float)i);
                 model = glm::translate(model, glm::vec3(0.0f, bounce, 0.0f));
             }
-
-
-
-
-
 
             glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
 
@@ -910,7 +1392,7 @@ void C3DViewer::render() {
 
         applySelectionAndBBox((int)C3DViewer::OBJ_BOWL, bowlModelBase, glm::vec3(m_bowlMinX, m_bowlMinY, m_bowlMinZ), glm::vec3(m_bowlMaxX, m_bowlMaxY, m_bowlMaxZ));
         for (size_t i = 0; i < m_bowlSubmeshes.size(); ++i) {
-            const auto &sm = m_bowlSubmeshes[i];
+            const auto& sm = m_bowlSubmeshes[i];
             glm::mat4 model = bowlModelBase;
             if (sm.isFruit) {
                 float rise = sin((float)tnow * 3.0f + (float)i) * 0.02f + 0.02f;
@@ -954,7 +1436,7 @@ void C3DViewer::render() {
 
         applySelectionAndBBox((int)C3DViewer::OBJ_CUP, cupModelBase, glm::vec3(m_cupMinX, m_cupMinY, m_cupMinZ), glm::vec3(m_cupMaxX, m_cupMaxY, m_cupMaxZ));
         for (size_t i = 0; i < m_cupSubmeshes.size(); ++i) {
-            const auto &sm = m_cupSubmeshes[i];
+            const auto& sm = m_cupSubmeshes[i];
             glm::mat4 model = cupModelBase; // misma transformación para todas las partes
             glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
 
@@ -1037,7 +1519,7 @@ void C3DViewer::render() {
     }
     glUniform1i(glGetUniformLocation(m_shaderProgram, "useNormalMap"), 0);
 
-    // --- Dibujo de esferas de luz ---
+    // --- Dibujo de esferas de luz (normal) ---
     glUseProgram(m_lightShader);
     glUniformMatrix4fv(glGetUniformLocation(m_lightShader, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(m_lightShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
@@ -1121,9 +1603,10 @@ bool C3DViewer::setupShader()
     if (locAmb >= 0) glUniform1i(locAmb, 2);
     GLint locSpec = glGetUniformLocation(m_shaderProgram, "texture_specular");
     if (locSpec >= 0) glUniform1i(locSpec, 3);
-    
     GLint locNormalMap = glGetUniformLocation(m_shaderProgram, "normalMap");
     if (locNormalMap >= 0) glUniform1i(locNormalMap, 4);
+    GLint locReflectionMap = glGetUniformLocation(m_shaderProgram, "reflectionMap");
+    if (locReflectionMap >= 0) glUniform1i(locReflectionMap, 5);
 
     return true;
 }

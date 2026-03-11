@@ -113,6 +113,10 @@ protected:
     float m_teapotExtraYaw = 0.0f;
     float m_teapotExtraPitch = 0.0f;
     void updateTeapotAnimation(double deltaTime);
+    // Cubemap dinamico
+    GLuint m_reflectionCubemap = 0;
+    GLuint m_reflectionFBO = 0;
+    GLuint m_reflectionDepthRB = 0;
     
     // Datos para el bowl
     std::vector<Submesh> m_bowlSubmeshes;
@@ -209,85 +213,6 @@ protected:
     };
     std::vector<ObjectMapping> m_objectMappings;
 
-    //const char* vertexShaderSrc = R"glsl(
-    //    #version 330 core
-    //    layout(location = 0) in vec3 aPos;
-    //    layout(location = 1) in vec3 aNormal;
-    //    layout(location = 2) in vec3 aColor;
-    //    layout(location = 3) in vec2 aTexCoords;
-    //    layout(location = 4) in vec3 aTangent;
-
-    //    out vec3 FragPos;
-    //    out vec3 Normal;
-    //    out vec3 Tangent;
-    //    out vec3 Color;
-    //    out vec2 TexCoords;
-
-    //    uniform mat4 model;
-    //    uniform mat4 view;
-    //    uniform mat4 projection;
-    //    // Texture generation overrides
-    //    uniform int overrideTexMapping; // 0: use vertex texcoords, 1: generate
-    //    uniform int sMapping; // 0: Spherical, 1: Cylindrical
-    //    uniform int oMapping; // 0: Plane, 1: Cubic
-    //    uniform vec3 bboxMin;
-    //    uniform vec3 bboxMax;
-
-    //    void main() {
-    //        vec3 localPos = aPos;
-    //        FragPos = vec3(model * vec4(localPos, 1.0));
-    //        Normal = mat3(transpose(inverse(model))) * aNormal;
-    //        Tangent = mat3(transpose(inverse(model))) * aTangent;
-    //        Color = aColor;
-    //        // Default texcoords from attribute
-    //        vec2 genTC = aTexCoords;
-    //        if (overrideTexMapping == 1) {
-    //            if (oMapping == 0) {
-    //                // Planar mapping (XZ -> u,v)
-    //                float u = (localPos.x - bboxMin.x) / max(0.0001, bboxMax.x - bboxMin.x);
-    //                float v = (localPos.z - bboxMin.z) / max(0.0001, bboxMax.z - bboxMin.z);
-    //                genTC = vec2(u, v);
-    //            } else {
-    //                // Cubic mapping: choose projection axis by normal
-    //                vec3 nModel = normalize(mat3(transpose(inverse(model))) * aNormal);
-    //                vec3 an = abs(nModel);
-    //                if (an.x >= an.y && an.x >= an.z) {
-    //                    // project on YZ
-    //                    float u = (localPos.z - bboxMin.z) / max(0.0001, bboxMax.z - bboxMin.z);
-    //                    float v = (localPos.y - bboxMin.y) / max(0.0001, bboxMax.y - bboxMin.y);
-    //                    genTC = vec2(u, v);
-    //                } else if (an.y >= an.x && an.y >= an.z) {
-    //                    // project on XZ
-    //                    float u = (localPos.x - bboxMin.x) / max(0.0001, bboxMax.x - bboxMin.x);
-    //                    float v = (localPos.z - bboxMin.z) / max(0.0001, bboxMax.z - bboxMin.z);
-    //                    genTC = vec2(u, v);
-    //                } else {
-    //                    // project on XY
-    //                    float u = (localPos.x - bboxMin.x) / max(0.0001, bboxMax.x - bboxMin.x);
-    //                    float v = (localPos.y - bboxMin.y) / max(0.0001, bboxMax.y - bboxMin.y);
-    //                    genTC = vec2(u, v);
-    //                }
-    //            }
-
-    //            // S-mapping choices (spherical or cylindrical) can override for continuous surfaces
-    //            if (sMapping == 0) {
-    //                // Spherical mapping
-    //                float r = length(localPos);
-    //                float u = 0.5 + atan(localPos.z, localPos.x) / (2.0 * 3.14159265359);
-    //                float v = 0.5 - asin(localPos.y / max(0.0001, r)) / 3.14159265359;
-    //                genTC = vec2(u, v);
-    //            } else if (sMapping == 1) {
-    //                // Cylindrical mapping
-    //                float u = 0.5 + atan(localPos.z, localPos.x) / (2.0 * 3.14159265359);
-    //                float v = (localPos.y - bboxMin.y) / max(0.0001, bboxMax.y - bboxMin.y);
-    //                genTC = vec2(u, v);
-    //            }
-    //        }
-
-    //        TexCoords = genTC;
-    //        gl_Position = projection * view * vec4(FragPos, 1.0);
-    //    }
-    //)glsl";
     const char* vertexShaderSrc = R"glsl(
         #version 330 core
         layout(location = 0) in vec3 aPos;
@@ -306,7 +231,7 @@ protected:
         uniform mat4 view;
         uniform mat4 projection;
 
-        // Texture generation overrides
+        // Opciones de generación de texturas
         uniform int texGenMode; // 0: original, 1: O-Mapping, 2: S-Mapping
         uniform int sMapping;   // 0: Spherical, 1: Cylindrical
         uniform int oMapping;   // 0: Plane, 1: Cubic
@@ -320,7 +245,7 @@ protected:
             Tangent = mat3(transpose(inverse(model))) * aTangent;
             Color = aColor;
 
-            vec2 genTC = aTexCoords; // por defecto, las originales
+            vec2 genTC = aTexCoords; // Texturas originales por defecto
 
             if (texGenMode == 1) { // O-Mapping
                 if (oMapping == 0) {
@@ -403,6 +328,8 @@ protected:
         uniform int lightModel[3]; // 0: Phong, 1: Blinn-Phong, 2: Flat
 
         uniform bool isReflective;
+        uniform samplerCube reflectionMap;
+        uniform bool useDynamicReflection;
 
         uniform sampler2D normalMap;
         uniform bool useNormalMap;
@@ -505,7 +432,8 @@ protected:
 
             if (isReflective) {
                 vec3 reflectDir = reflect(-viewDir, norm);
-                vec3 reflectionColor = texture(skybox, reflectDir).rgb;
+                vec3 sampDir = reflectDir;
+                vec3 reflectionColor = useDynamicReflection ? texture(reflectionMap, sampDir).rgb : texture(skybox, reflectDir).rgb;
                 reflectionColor *= baseColor;
 
                 // Fresnel para metales
