@@ -356,6 +356,11 @@ bool C3DViewer::setup()
     };
 
     m_skyboxTexture = loadCubemap(faces);
+
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_skyboxTexture);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
     currentStage++;
     updateLoadingScreen(currentStage, stages[currentStage - 1]);
 
@@ -626,6 +631,10 @@ void C3DViewer::render() {
         };
 
     // --- Dibujo de skybox ---
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDepthMask(GL_FALSE);
+
     glUseProgram(m_simpleShader);
     glm::mat4 skyView = glm::mat4(glm::mat3(view));
     glUniformMatrix4fv(glGetUniformLocation(m_simpleShader, "view"), 1, GL_FALSE, glm::value_ptr(skyView));
@@ -638,7 +647,8 @@ void C3DViewer::render() {
     glDrawArrays(GL_TRIANGLES, 0, 36);
     glDepthMask(GL_TRUE);
     glDepthFunc(GL_LESS);
-
+    
+    glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
 
     // --- Preparación de Objetos Iluminados ---
@@ -710,12 +720,13 @@ void C3DViewer::render() {
 
     // Matrices de vista para las 6 caras con orientación estándar de OpenGL
     glm::mat4 captureViews[] = {
-        glm::lookAt(teapotPos, teapotPos + glm::vec3(1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)), // +X
-        glm::lookAt(teapotPos, teapotPos + glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)), // -X
-        glm::lookAt(teapotPos, teapotPos + glm::vec3(0.0f,  1.0f,  0.0f), glm::vec3(0.0f,  0.0f,  1.0f)), // +Y
-        glm::lookAt(teapotPos, teapotPos + glm::vec3(0.0f, -1.0f,  0.0f), glm::vec3(0.0f,  0.0f, -1.0f)), // -Y
-        glm::lookAt(teapotPos, teapotPos + glm::vec3(0.0f,  0.0f,  1.0f), glm::vec3(0.0f, -1.0f,  0.0f)), // +Z
-        glm::lookAt(teapotPos, teapotPos + glm::vec3(0.0f,  0.0f, -1.0f), glm::vec3(0.0f, -1.0f,  0.0f))  // -Z
+        // Cara           | Objetivo (Posición + Dirección)          | Vector Up
+        glm::lookAt(teapotPos, teapotPos + glm::vec3( 1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)), // +X (Derecha)
+        glm::lookAt(teapotPos, teapotPos + glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)), // -X (Izquierda)
+        glm::lookAt(teapotPos, teapotPos + glm::vec3( 0.0f,  1.0f,  0.0f), glm::vec3(0.0f,  0.0f,  1.0f)), // +Y (Techo)
+        glm::lookAt(teapotPos, teapotPos + glm::vec3( 0.0f, -1.0f,  0.0f), glm::vec3(0.0f,  0.0f, -1.0f)), // -Y (Suelo)
+        glm::lookAt(teapotPos, teapotPos + glm::vec3( 0.0f,  0.0f,  1.0f), glm::vec3(0.0f, -1.0f,  0.0f)), // +Z (Atrás)
+        glm::lookAt(teapotPos, teapotPos + glm::vec3( 0.0f,  0.0f, -1.0f), glm::vec3(0.0f, -1.0f,  0.0f))  // -Z (Frente)
     };
 
     glBindFramebuffer(GL_FRAMEBUFFER, m_reflectionFBO);
@@ -737,6 +748,7 @@ void C3DViewer::render() {
         }
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glDisable(GL_CULL_FACE);
 
         // Configuracion de matrices de vista y proyección para esta cara
         glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(captureViews[i]));
